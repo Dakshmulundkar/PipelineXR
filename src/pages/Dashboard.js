@@ -2,6 +2,7 @@ import React from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import Layout from '../components/layout/Layout';
+import { PricingSection } from '../components/pricing';
 
 const Dashboard = () => {
   const { user, signOut } = useAuth();
@@ -18,19 +19,24 @@ const Dashboard = () => {
     <Layout>
       <div style={{
         minHeight: '100vh',
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'center',
-        alignItems: 'center',
-        padding: '2rem',
-        color: 'white',
-        textAlign: 'center'
+        position: 'relative',
+        color: 'white'
       }}>
-        <h1>Dashboard</h1>
-        <p>Welcome, {user?.email}!</p>
-        <p>You have successfully logged in.</p>
-        
-        <div style={{ marginTop: '2rem' }}>
+        <div style={{
+          position: 'relative',
+          zIndex: 30,
+          padding: '2rem',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          maxWidth: '1280px',
+          margin: '0 auto'
+        }}>
+          <div>
+            <h2 style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}>Dashboard</h2>
+            <p style={{ color: 'rgba(255, 255, 255, 0.7)' }}>Welcome, {user?.email}!</p>
+          </div>
+
           <button
             onClick={handleSignOut}
             style={{
@@ -55,6 +61,8 @@ const Dashboard = () => {
             Sign Out
           </button>
         </div>
+
+        <PricingSection />
       </div>
     </Layout>
   );
