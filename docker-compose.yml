@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  platform:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./server:/app/server
+      - ./public:/app/public
+      - ./devops.sqlite:/app/devops.sqlite
+      # Required for Trivy: gives the backend access to the host Docker daemon
+      # so it can spawn aquasec/trivy containers without a Trivy binary installed.
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - NODE_ENV=development
+      # - GITHUB_TOKEN=your_token_here
+    restart: always
+
+  # Optional: Prometheus for monitoring the monitor
+  # prometheus:
+  #   image: prom/prometheus
+  #   ports:
+  #     - "9090:9090"
