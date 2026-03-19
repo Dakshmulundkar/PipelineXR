@@ -107,57 +107,54 @@ const Dashboard = () => {
 
         if (metrics && metrics.rawRuns) {
             const runs = metrics.rawRuns.slice().reverse();
-            
-            if (mounted.current) {
-                // Group by day for realistic charts instead of one bar per run
-                const groupedByDay = {};
-                runs.forEach(r => {
-                    const day = formatTimestamp(r.run_started_at, '7d');
-                    if (!groupedByDay[day]) groupedByDay[day] = { total: 0, success: 0 };
-                    groupedByDay[day].total++;
-                    if (r.conclusion === 'success') groupedByDay[day].success++;
-                });
+            const groupedByDay = {};
+            runs.forEach(r => {
+                const day = formatTimestamp(r.run_started_at, '7d');
+                if (!groupedByDay[day]) groupedByDay[day] = { total: 0, success: 0 };
+                groupedByDay[day].total++;
+                if (r.conclusion === 'success') groupedByDay[day].success++;
+            });
 
-                const chartLabels = Object.keys(groupedByDay);
-                const depData = chartLabels.map(day => groupedByDay[day].success);
-                const srData = chartLabels.map(day => Math.round((groupedByDay[day].success / Math.max(1, groupedByDay[day].total)) * 100));
+            const chartLabels = Object.keys(groupedByDay);
+            const depData = chartLabels.map(day => groupedByDay[day].success);
+            const srData = chartLabels.map(day => Math.round((groupedByDay[day].success / Math.max(1, groupedByDay[day].total)) * 100));
 
-                setChartData({
-                    dep: chartLabels.length ? {
-                        labels: chartLabels,
-                        datasets: [{
-                            label: 'Deployments',
-                            data: depData,
-                            backgroundColor: (context) => {
-                                const ctx = context.chart.ctx;
-                                const gradient = ctx.createLinearGradient(0, 0, 0, 300);
-                                gradient.addColorStop(0, '#3B82F6');
-                                gradient.addColorStop(1, 'rgba(59, 130, 246, 0.1)');
-                                return gradient;
-                            },
-                            borderRadius: 10,
-                            borderSkipped: false,
-                            barThickness: 20
-                        }]
-                    } : null,
-                    sr: chartLabels.length ? {
-                        labels: chartLabels,
-                        datasets: [{
-                            label: 'Success Rate (%)',
-                            data: srData,
-                            borderColor: '#10B981',
-                            backgroundColor: 'rgba(16, 185, 129, 0.1)',
-                            borderWidth: 2,
-                            fill: true,
-                            tension: 0.4,
-                            pointBackgroundColor: '#10B981',
-                            pointRadius: 4
-                        }]
-                    } : null
-                });
-            }
+            const newChartData = {
+                dep: chartLabels.length ? {
+                    labels: chartLabels,
+                    datasets: [{
+                        label: 'Deployments',
+                        data: depData,
+                        backgroundColor: (context) => {
+                            const ctx = context.chart.ctx;
+                            const gradient = ctx.createLinearGradient(0, 0, 0, 300);
+                            gradient.addColorStop(0, '#3B82F6');
+                            gradient.addColorStop(1, 'rgba(59, 130, 246, 0.1)');
+                            return gradient;
+                        },
+                        borderRadius: 10,
+                        borderSkipped: false,
+                        barThickness: 20
+                    }]
+                } : null,
+                sr: chartLabels.length ? {
+                    labels: chartLabels,
+                    datasets: [{
+                        label: 'Success Rate (%)',
+                        data: srData,
+                        borderColor: '#10B981',
+                        backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.4,
+                        pointBackgroundColor: '#10B981',
+                        pointRadius: 4
+                    }]
+                } : null
+            };
+            setTimeout(() => { if (mounted.current) setChartData(newChartData); }, 0);
         } else {
-             if (mounted.current) setChartData({ dep: null, sr: null });
+            setTimeout(() => { if (mounted.current) setChartData({ dep: null, sr: null }); }, 0);
         }
         return () => { mounted.current = false; };
     }, [selectedRepo, metrics]);

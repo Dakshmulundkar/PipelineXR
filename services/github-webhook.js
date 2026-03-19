@@ -275,14 +275,16 @@ class GitHubWebhookService {
                 if (err) return reject(err);
                 try {
                     const runsWithStages = await Promise.all(rows.map(async (run) => {
-                        const jobsSql = `SELECT job_name, status, conclusion, started_at, completed_at, duration_seconds FROM workflow_jobs WHERE run_id = ? ORDER BY started_at`;
+                        const jobsSql = `SELECT job_id, job_name, status, conclusion, started_at, completed_at, duration_seconds, html_url FROM workflow_jobs WHERE run_id = ? ORDER BY started_at`;
                         const jobs = await new Promise((res) => {
                             this.db.all(jobsSql, [run.run_id], (err, jobsRows) => res(err ? [] : jobsRows));
                         });
                         const stages = jobs.map(job => ({
                             name: job.job_name,
                             status: job.conclusion || job.status || 'pending',
-                            duration: job.duration_seconds || 0
+                            duration: job.duration_seconds || 0,
+                            job_id: job.job_id,
+                            html_url: job.html_url || null
                         }));
                         return { ...run, stages };
                     }));

@@ -250,12 +250,12 @@ const Pipelines = () => {
                         const stages = run.stages || [];
 
                         return (
-                            <a key={run.id || i} href={run.html_url} target="_blank" rel="noopener noreferrer"
+                            <div key={run.id || i}
                                 style={{
                                     background: 'rgba(28,28,30,0.4)', backdropFilter: 'blur(20px)',
                                     border: '1px solid rgba(255,255,255,0.08)', borderRadius: 20,
                                     padding: '16px', display: 'flex', alignItems: 'center', gap: 24,
-                                    textDecoration: 'none', animation: `slideUp 0.5s ease-out ${i * 0.05}s both`
+                                    animation: `slideUp 0.5s ease-out ${i * 0.05}s both`
                                 }} className="hover:border-white/20 transition-all group">
 
                                 {/* Status icon */}
@@ -319,10 +319,12 @@ const Pipelines = () => {
                                 </div>
 
                                 {/* External link */}
-                                <div style={{ padding: 8, color: 'rgba(255,255,255,0.2)', transition: 'all 0.2s' }} className="group-hover:text-white group-hover:translate-x-1">
+                                <a href={run.html_url} target="_blank" rel="noopener noreferrer"
+                                    style={{ padding: 8, color: 'rgba(255,255,255,0.2)', transition: 'all 0.2s', display: 'flex' }}
+                                    className="group-hover:text-white group-hover:translate-x-1">
                                     <ExternalLink size={18} />
-                                </div>
-                            </a>
+                                </a>
+                            </div>
                         );
                     })
                 )}

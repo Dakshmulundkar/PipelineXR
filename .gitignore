@@ -42,3 +42,6 @@ trivy/
 
 # Qoder
 .qoder/
+
+# Reference folder (teammate's copy, local only)
+refrence/

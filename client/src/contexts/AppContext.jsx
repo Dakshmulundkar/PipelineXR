@@ -4,6 +4,7 @@ import { api } from '../services/api';
 
 const AppContext = createContext();
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useAppContext = () => useContext(AppContext);
 
 export const AppProvider = ({ children, isAuthenticated }) => {

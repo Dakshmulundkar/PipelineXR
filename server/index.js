@@ -530,8 +530,13 @@ app.get('/api/reports/download', async (req, res) => {
     try {
         const userId = req.session.user?.dbId || 1;
         const { repository } = req.query;
-        const reports = await analytics.getTestReports(userId, repository || null);
-        const summary = await analytics.getQualityMetrics(userId);
+        const rawReports = await analytics.getTestReports(userId, repository || null);
+
+        // Ensure pass_rate is computed
+        const reports = rawReports.map(r => ({
+            ...r,
+            pass_rate: r.total_tests > 0 ? Math.round((r.passed / r.total_tests) * 100) : 0
+        }));
 
         const tot = reports.reduce((a, r) => a + (r.total_tests || 0), 0);
         const pass = reports.reduce((a, r) => a + (r.passed || 0), 0);
@@ -556,13 +561,14 @@ app.get('/api/reports/download', async (req, res) => {
             .fail { color: #dc2626; font-weight: 700; }
         </style></head><body>
         <h1>PipelineXR Audit Report</h1>
-        <div class="sub">Generated ${new Date().toLocaleString()}${repository ? ` · ${repository}` : ''}</div>
+        <div class="sub">Generated ${new Date().toLocaleString()}${repository ? ` &middot; ${repository}` : ''}</div>
         <div class="stats">
             <div class="stat"><div class="val">${tot}</div><div class="lbl">Total Steps</div></div>
             <div class="stat"><div class="val" style="color:#16a34a">${pass}</div><div class="lbl">Passed</div></div>
             <div class="stat"><div class="val" style="color:#dc2626">${fail}</div><div class="lbl">Failed</div></div>
             <div class="stat"><div class="val">${avgRate}%</div><div class="lbl">Quality Index</div></div>
         </div>
+        ${reports.length === 0 ? '<p style="color:#888">No job data available for this repository yet.</p>' : `
         <table>
             <thead><tr><th>Run ID</th><th>Suite / Job</th><th>Steps</th><th>Passed</th><th>Failed</th><th>Rate</th><th>Date</th></tr></thead>
             <tbody>
@@ -576,22 +582,25 @@ app.get('/api/reports/download', async (req, res) => {
                 <td>${r.latest_run ? new Date(r.latest_run).toLocaleDateString() : '-'}</td>
             </tr>`).join('')}
             </tbody>
-        </table>
+        </table>`}
         </body></html>`;
 
         const puppeteer = require('puppeteer');
-        const browser = await puppeteer.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] });
+        const browser = await puppeteer.launch({
+            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+            timeout: 30000
+        });
         const page = await browser.newPage();
-        await page.setContent(html, { waitUntil: 'networkidle0' });
-        const pdf = await page.pdf({ format: 'A4', margin: { top: '20px', bottom: '20px', left: '20px', right: '20px' } });
+        await page.setContent(html, { waitUntil: 'domcontentloaded', timeout: 15000 });
+        const pdf = await page.pdf({ format: 'A4', margin: { top: '20px', bottom: '20px', left: '20px', right: '20px' }, printBackground: true });
         await browser.close();
 
         res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', 'attachment; filename=pipelinexr-audit-report.pdf');
-        res.send(pdf);
+        res.setHeader('Content-Disposition', `attachment; filename=pipelinexr-report-${Date.now()}.pdf`);
+        res.send(Buffer.from(pdf));
     } catch (error) {
         console.error('PDF generation error:', error);
-        res.status(500).json({ error: 'Failed to generate PDF' });
+        res.status(500).json({ error: 'Failed to generate PDF: ' + error.message });
     }
 });
 

@@ -345,6 +345,23 @@ const getWorkflowRunsForMetrics = async (owner, repo) => {
     }
 };
 
+// Fetch jobs for a specific workflow run (includes steps)
+const getJobsForRun = async (owner, repo, runId) => {
+    if (!octokit) await init();
+    try {
+        const response = await octokit.request('GET /repos/{owner}/{repo}/actions/runs/{run_id}/jobs', {
+            owner,
+            repo,
+            run_id: runId,
+            per_page: 100
+        });
+        return response.data.jobs;
+    } catch (error) {
+        console.error(`GitHub Jobs Fetch Error for run ${runId}:`, error.message);
+        return [];
+    }
+};
+
 module.exports = {
     init,
     getRepoStats,
@@ -356,5 +373,6 @@ module.exports = {
     getDependabotAlerts,
     triggerWorkflow,
     getWorkflowRunsForMetrics,
+    getJobsForRun,
     getWorkflows
 };

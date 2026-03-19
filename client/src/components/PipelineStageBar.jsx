@@ -12,10 +12,22 @@ const STATUS_CONFIG = {
     queued: { icon: Clock, color: 'rgba(255,255,255,0.2)', bg: 'rgba(255,255,255,0.03)', border: 'rgba(255,255,255,0.05)', label: 'Queued' },
 };
 
+const STAGE_ORDER = ['build', 'security', 'test', 'deploy'];
+
+const sortedStages = (stages) => {
+    const getOrder = (name = '') => {
+        const lower = name.toLowerCase();
+        const idx = STAGE_ORDER.findIndex(s => lower.includes(s));
+        return idx === -1 ? STAGE_ORDER.length : idx;
+    };
+    return [...stages].sort((a, b) => getOrder(a.name) - getOrder(b.name));
+};
+
 const PipelineStageBar = ({ stages = [] }) => {
+    const ordered = sortedStages(stages);
     return (
         <div style={{ display: 'flex', alignItems: 'center', gap: 0, padding: '12px 0', minWidth: 0 }}>
-            {stages.map((stage, idx) => {
+            {ordered.map((stage, idx) => {
                 const cfg = STATUS_CONFIG[stage.status?.toLowerCase()] || STATUS_CONFIG.pending;
                 const Icon = cfg.icon;
 
@@ -29,22 +41,29 @@ const PipelineStageBar = ({ stages = [] }) => {
                             zIndex: 2,
                             position: 'relative'
                         }}>
-                            <div style={{
-                                width: 32,
-                                height: 32,
-                                borderRadius: '50%',
-                                background: cfg.bg,
-                                border: `1px solid ${cfg.border}`,
-                                color: cfg.color,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                transition: 'all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)',
-                                boxShadow: cfg.spin ? `0 0 15px ${cfg.color}30` : 'none'
-                            }} className="hover:scale-125 hover:shadow-lg cursor-help group">
+                            <a
+                                href={stage.html_url || undefined}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={stage.html_url ? (e) => e.stopPropagation() : undefined}
+                                style={{
+                                    width: 32,
+                                    height: 32,
+                                    borderRadius: '50%',
+                                    background: cfg.bg,
+                                    border: `1px solid ${cfg.border}`,
+                                    color: cfg.color,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    transition: 'all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)',
+                                    boxShadow: cfg.spin ? `0 0 15px ${cfg.color}30` : 'none',
+                                    textDecoration: 'none',
+                                    cursor: stage.html_url ? 'pointer' : 'help',
+                                }} className="hover:scale-125 hover:shadow-lg group">
                                 <Icon size={16} className={cfg.spin ? 'animate-spin' : ''} />
 
-                                {/* Professional Tooltip */}
+                                {/* Tooltip */}
                                 <div style={{
                                     position: 'absolute',
                                     bottom: '100%',
@@ -65,8 +84,9 @@ const PipelineStageBar = ({ stages = [] }) => {
                                     transition: 'all 0.2s ease-out'
                                 }} className="group-hover:opacity-100 group-hover:translate-y-[-4px]">
                                     {stage.name}: {cfg.label}
+                                    {stage.html_url && <span style={{ color: 'rgba(255,255,255,0.4)', marginLeft: 4 }}>↗</span>}
                                 </div>
-                            </div>
+                            </a>
                             <div style={{
                                 fontSize: 10,
                                 fontWeight: 700,
@@ -82,7 +102,7 @@ const PipelineStageBar = ({ stages = [] }) => {
                             </div>
                         </div>
 
-                        {idx < stages.length - 1 && (
+                        {idx < ordered.length - 1 && (
                             <div style={{
                                 height: 1.5,
                                 width: 32,

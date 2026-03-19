@@ -8,18 +8,19 @@ const AuthCallback = ({ onLogin }) => {
 
     useEffect(() => {
         const err = searchParams.get('error');
-        const callbackStatus = searchParams.get('status');
 
         if (err) {
             console.error('Auth error:', err);
-            setStatus('Authentication failed');
-            localStorage.removeItem('sf_auth');
-            setTimeout(() => navigate('/login', { replace: true }), 2000);
+            setTimeout(() => {
+                setStatus('Authentication failed');
+                localStorage.removeItem('sf_auth');
+                setTimeout(() => navigate('/login', { replace: true }), 2000);
+            }, 0);
             return;
         }
 
         // Always verify session server-side — never trust URL params for tokens
-        setStatus('Verifying session...');
+        setTimeout(() => setStatus('Verifying session...'), 0);
         fetch('/auth/user', { credentials: 'include' })
             .then(res => {
                 if (res.ok) return res.json();
@@ -29,7 +30,7 @@ const AuthCallback = ({ onLogin }) => {
                 if (data.authenticated && data.user) {
                     localStorage.setItem('sf_auth', 'true');
                     if (onLogin) onLogin();
-                    setStatus('Success! Redirecting...');
+                    setTimeout(() => setStatus('Success! Redirecting...'), 0);
                     setTimeout(() => navigate('/', { replace: true }), 500);
                 } else {
                     throw new Error('Session not valid');
@@ -38,7 +39,7 @@ const AuthCallback = ({ onLogin }) => {
             .catch(err => {
                 console.error('Session check failed:', err);
                 localStorage.removeItem('sf_auth');
-                setStatus('Session expired');
+                setTimeout(() => setStatus('Session expired'), 0);
                 setTimeout(() => navigate('/login', { replace: true }), 2000);
             });
     }, [searchParams, navigate, onLogin]);

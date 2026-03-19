@@ -1,13 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Shield, Lock, Activity, Globe, Github } from 'lucide-react';
 
 const Login = () => {
     const [hover, setHover] = useState(false);
-    const [mounted, setMounted] = useState(false);
-
-    useEffect(() => {
-        setMounted(true);
-    }, []);
 
     const features = [
         { label: 'Cloud Security', icon: Globe, color: '#3B82F6' },

@@ -5,8 +5,9 @@ class AnalyticsService {
         this.db = db;
     }
 
-    async getTestReports(userId) {
+    async getTestReports(userId, repository = null) {
         return new Promise((resolve, reject) => {
+            const repoFilter = repository ? 'AND wr.repository = ?' : '';
             const sql = `
                 SELECT 
                     wj.run_id as run_id,
@@ -16,14 +17,21 @@ class AnalyticsService {
                     (SELECT COUNT(*) FROM job_steps js WHERE js.job_id = wj.job_id AND js.conclusion = 'failure' AND js.user_id = ?) as failed,
                     0 as flaky,
                     wj.duration_seconds * 1000 as avg_duration_ms,
-                    wj.started_at as latest_run
+                    wj.started_at as latest_run,
+                    wr.repository as repository
                 FROM workflow_jobs wj
+                LEFT JOIN workflow_runs wr ON wj.run_id = wr.run_id AND wr.user_id = wj.user_id
                 WHERE wj.status = 'completed' AND wj.user_id = ?
+                ${repoFilter}
                 ORDER BY wj.started_at DESC
-                LIMIT 20
+                LIMIT 50
             `;
 
-            this.db.all(sql, [userId, userId, userId], (err, rows) => {
+            const params = repository
+                ? [userId, userId, userId, repository]
+                : [userId, userId, userId];
+
+            this.db.all(sql, params, (err, rows) => {
                 if (err) {
                     reject(err);
                 } else {
@@ -34,6 +42,93 @@ class AnalyticsService {
                 }
             });
         });
+    }
+
+    // Sync workflow jobs + steps from GitHub API into local DB
+    async syncJobsFromGitHub(repository, userId = 1) {
+        if (!repository || !repository.includes('/')) {
+            throw new Error('Invalid repository. Expected "owner/repo".');
+        }
+
+        const token = process.env.GITHUB_TOKEN;
+        if (!token) throw new Error('GITHUB_TOKEN not configured.');
+
+        const githubService = require('./github');
+        await githubService.init(token);
+
+        const [owner, repo] = repository.split('/');
+
+        // Get last 30 completed runs
+        const runs = await githubService.getWorkflowRunsForMetrics(owner, repo);
+        const recentRuns = runs.slice(0, 30);
+
+        console.log(`[REPORTS SYNC] ${repository}: syncing jobs for ${recentRuns.length} runs`);
+
+        // Ensure unique index
+        await new Promise((resolve, reject) => {
+            this.db.run(
+                `CREATE UNIQUE INDEX IF NOT EXISTS idx_workflow_jobs_user_job ON workflow_jobs(user_id, job_id)`,
+                (err) => (err ? reject(err) : resolve())
+            );
+        });
+        await new Promise((resolve, reject) => {
+            this.db.run(
+                `CREATE UNIQUE INDEX IF NOT EXISTS idx_job_steps_user_step_job ON job_steps(user_id, job_id, number)`,
+                (err) => (err ? reject(err) : resolve())
+            );
+        });
+
+        let totalJobs = 0;
+
+        for (const run of recentRuns) {
+            const jobs = await githubService.getJobsForRun(owner, repo, run.id);
+
+            for (const job of jobs) {
+                const durationSec = job.started_at && job.completed_at
+                    ? Math.max(0, Math.floor((new Date(job.completed_at) - new Date(job.started_at)) / 1000))
+                    : null;
+
+                await new Promise((resolve, reject) => {
+                    this.db.run(`
+                        INSERT INTO workflow_jobs (user_id, job_id, run_id, workflow_name, job_name, status, conclusion, started_at, completed_at, duration_seconds, steps_count, html_url)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(user_id, job_id) DO UPDATE SET
+                            status=excluded.status, conclusion=excluded.conclusion,
+                            completed_at=excluded.completed_at, duration_seconds=excluded.duration_seconds,
+                            steps_count=excluded.steps_count
+                    `, [
+                        userId, job.id, run.id, run.name || null, job.name,
+                        job.status, job.conclusion, job.started_at, job.completed_at,
+                        durationSec, job.steps?.length || 0, job.html_url
+                    ], (err) => (err ? reject(err) : resolve()));
+                });
+
+                // Upsert steps
+                for (const step of (job.steps || [])) {
+                    const stepDur = step.started_at && step.completed_at
+                        ? Math.max(0, Math.floor((new Date(step.completed_at) - new Date(step.started_at)) / 1000))
+                        : null;
+
+                    await new Promise((resolve, reject) => {
+                        this.db.run(`
+                            INSERT INTO job_steps (user_id, step_id, job_id, name, status, conclusion, number, started_at, completed_at, duration_seconds)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ON CONFLICT(user_id, job_id, number) DO UPDATE SET
+                                status=excluded.status, conclusion=excluded.conclusion,
+                                completed_at=excluded.completed_at, duration_seconds=excluded.duration_seconds
+                        `, [
+                            userId, null, job.id, step.name, step.status,
+                            step.conclusion, step.number, step.started_at,
+                            step.completed_at, stepDur
+                        ], (err) => (err ? reject(err) : resolve()));
+                    });
+                }
+
+                totalJobs++;
+            }
+        }
+
+        return { repository, jobsSynced: totalJobs };
     }
 
     async getDetailedTestResults(userId) {
@@ -192,4 +287,4 @@ class AnalyticsService {
     }
 }
 
-module.exports = AnalyticsService;
+module.exports = AnalyticsService;

@@ -16,7 +16,7 @@ const DataTable = ({ columns = [], data = [], emptyMessage = 'No data available'
                 <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, textAlign: 'left' }}>
                     <thead>
                         <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
-                            {columns.map((col, i) => (
+                            {columns.map((col) => (
                                 <th key={col.key} style={{
                                     padding: '16px 24px',
                                     fontSize: 11,
@@ -61,7 +61,7 @@ const DataTable = ({ columns = [], data = [], emptyMessage = 'No data available'
                                     }}
                                     className="hover:bg-white/[0.02] group"
                                 >
-                                    {columns.map((col, colIdx) => (
+                                    {columns.map((col) => (
                                         <td key={col.key} style={{
                                             padding: '16px 24px',
                                             fontSize: 14,

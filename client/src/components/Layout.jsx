@@ -71,7 +71,10 @@ const Layout = ({ children }) => {
     }, [searchVal, repos]);
 
     // Reset index when results change
-    useEffect(() => { setSearchIdx(0); }, [searchResults]);
+    useEffect(() => {
+        const t = setTimeout(() => setSearchIdx(0), 0);
+        return () => clearTimeout(t);
+    }, [searchResults]);
 
     const handleSearchKey = (e) => {
         if (!searchOpen || searchResults.length === 0) return;
@@ -252,7 +255,7 @@ const Layout = ({ children }) => {
                                             {searchResults.some(r => r.type === 'page') && (
                                                 <div style={{ padding: '8px 12px 4px', fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.25)', letterSpacing: '0.06em' }}>PAGES</div>
                                             )}
-                                            {searchResults.filter(r => r.type === 'page').map((item, i) => {
+                                            {searchResults.filter(r => r.type === 'page').map((item) => {
                                                 const globalIdx = searchResults.indexOf(item);
                                                 const Icon = item.icon;
                                                 return (

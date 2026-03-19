@@ -208,10 +208,12 @@ const Security = () => {
 
     useEffect(() => {
         if (!selectedRepo) return;
-        setInsightLoading(true);
+        const controller = new AbortController();
+        setTimeout(() => setInsightLoading(true), 0);
         api.getSecurityInsights(selectedRepo)
             .then(d => { setInsight(d.insight); setInsightLoading(false); })
             .catch(() => setInsightLoading(false));
+        return () => controller.abort();
     }, [selectedRepo]);
 
     const handleRefresh = () => startScan(selectedRepo);
