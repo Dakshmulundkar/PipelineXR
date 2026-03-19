@@ -1,6 +1,5 @@
-require('dotenv').config();
-console.log('GITHUB_TOKEN present in server?', Boolean(process.env.GITHUB_TOKEN));
 const express = require('express');
+const PDFDocument = require('pdfkit');
 const http = require('http');
 const socketIo = require('socket.io');
 const cors = require('cors');
@@ -466,14 +465,9 @@ app.get('/api/github/actions', async (req, res) => {
     const stats = await githubService.getWorkflowStats(owner, repo);
     res.json(stats);
 });
-
-app.get('/api/github/workflows', async (req, res) => {
-    await ensureGithub(req);
-    const { owner, repo } = req.query;
-    if (!owner || !repo) return res.status(400).json({ error: 'Missing params' });
-    const workflows = await githubService.getWorkflows(owner, repo);
-    res.json(workflows);
-});
+// --------------------------------------------------------------------------
+// Analytics & Reporting Routes (Scoped)
+// --------------------------------------------------------------------------
 
 app.get('/api/reports/tests', async (req, res) => {
     try {
@@ -505,6 +499,9 @@ app.get('/api/reports/summary', async (req, res) => {
     } catch (error) {
         res.status(500).json({ error: 'Failed' });
     }
+
+
+    
 });
 
 app.get('/api/metrics/trend/:name', async (req, res) => {
@@ -523,32 +520,6 @@ app.get('/api/metrics/trend/:name', async (req, res) => {
     }
 });
 
-// --------------------------------------------------------------------------
-// Metrics Routes (DORA)
-// --------------------------------------------------------------------------
-app.get('/api/metrics/dora/:repo', async (req, res) => {
-  try {
-    const userId = req.session.user?.dbId || 1;
-    const repo = decodeURIComponent(req.params.repo || '').trim();
-    const range = (req.query.range || '7d').toString();
-
-    if (!repo) return res.status(400).json({ error: 'Missing repo' });
-
-    // map UI ranges -> days
-    let days = 7;
-    if (range === '24h') days = 1;
-    if (range === '30d') days = 30;
-    if (range === '90d') days = 90;
-
-    // NOTE: Step 3 will fix/extend metricsService.getDoraMetrics to accept days.
-    const data = await metricsService.getDoraMetrics(repo, days);
-
-    return res.json(data);
-  } catch (error) {
-    console.error('DORA metrics error:', error);
-    return res.status(500).json({ error: error.message });
-  }
-});
 // --------------------------------------------------------------------------
 // Security Routes (New Processor & Scoped)
 // --------------------------------------------------------------------------
@@ -897,30 +868,6 @@ app.get('/api/deployments/stats', async (req, res) => {
     }
 });
 
-// --------------------------------------------------------------------------
-// Metrics Routes (DORA) - Sync workflow runs from GitHub
-// --------------------------------------------------------------------------
-app.post('/api/metrics/dora/sync', async (req, res) => {
-  try {
-    const userId = req.session.user?.dbId || 1;
-    const repository = (req.body?.repository || req.query?.repository || '').toString().trim();
-    const days = Number(req.body?.days || req.query?.days || 7) || 7;
-
-    if (!repository || !repository.includes('/')) {
-      return res.status(400).json({ error: 'Missing or invalid repository (expected owner/repo)' });
-    }
-
-    await ensureGithub(req); // sets up githubService with token if present
-
-    const result = await metricsService.syncWorkflowRunsFromGitHub(repository, days, userId);
-
-    return res.json({ success: true, ...result });
-  } catch (error) {
-    console.error('DORA sync error:', error);
-    return res.status(500).json({ error: error.message });
-  }
-});
-
 // Pipeline stats (alias)
 app.get('/api/pipelines/stats', async (req, res) => {
     try {
@@ -971,6 +918,74 @@ app.get(/(.*)/, (req, res) => {
     });
 });
 
+
+
+app.get('/api/reports/tests', async (req, res) => {
+    try {
+        const userId = req.session.user?.dbId || 1;
+        const reports = await analytics.getTestReports(userId);
+        res.json(reports);
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to fetch reports' });
+    }
+});
+
+app.get('/api/reports/summary', async (req, res) => {
+    try {
+        const userId = req.session.user?.dbId || 1;
+        const summary = await analytics.getQualityMetrics(userId);
+        res.json(summary);
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to fetch summary' });
+    }
+});
+//  Download PDF Report
+app.get('/api/reports/download', async (req, res) => {
+    try {
+        const userId = req.session.user?.dbId || 1;
+
+        const reports = await analytics.getTestReports(userId);
+        const summary = await analytics.getQualityMetrics(userId);
+
+        const doc = new PDFDocument();
+
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', 'attachment; filename=pipelinexr-report.pdf');
+
+        doc.pipe(res);
+
+        // Title
+        doc.fontSize(20).text('PipelineXR Audit Report', { align: 'center' });
+        doc.moveDown();
+
+        // Summary
+        doc.fontSize(14).text('Summary');
+        doc.text(`Total Tests: ${summary?.total_tests || 0}`);
+        doc.text(`Passed: ${summary?.passed || 0}`);
+        doc.text(`Failed: ${summary?.failed || 0}`);
+        doc.text(`Pass Rate: ${summary?.pass_rate || 0}%`);
+        doc.moveDown();
+
+        // Reports
+        doc.fontSize(14).text('Reports');
+        doc.moveDown();
+
+        reports.forEach((r, i) => {
+            doc.fontSize(12).text(`Suite: ${r.suite_name || 'N/A'}`);
+            doc.text(`Run ID: ${r.run_id}`);
+            doc.text(`Total: ${r.total_tests}`);
+            doc.text(`Passed: ${r.passed}`);
+            doc.text(`Failed: ${r.failed}`);
+            doc.moveDown();
+        });
+
+        doc.end();
+
+    } catch (err) {
+        console.error('PDF error:', err);
+        res.status(500).json({ error: 'Failed to generate PDF' });
+    }
+});
 // --------------------------------------------------------------------------
 // Socket & Server Start
 // --------------------------------------------------------------------------

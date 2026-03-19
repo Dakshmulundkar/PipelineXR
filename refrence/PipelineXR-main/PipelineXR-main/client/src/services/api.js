@@ -76,13 +76,7 @@ export const api = {
     triggerTrivyScan: (data) => apiInstance.post(`${API_BASE}/security/scan/trivy`, data).then(res => res.data),
 
     getVulnerabilities: (owner, repo) => get(`${API_BASE}/security/vulnerabilities/${owner}/${repo}`),
-    getSBOM: (owner, repo) => get(`${API_BASE}/security/sbom/${owner}/${repo}`),
-
-    // Workflows
-    getWorkflows: (owner, repo) => get(`${API_BASE}/github/workflows?owner=${encodeURIComponent(owner)}&repo=${encodeURIComponent(repo)}`),
-
-    // DORA sync — pulls runs from GitHub API into local DB
-    syncDoraMetrics: (repository, days = 30) => apiInstance.post(`${API_BASE}/metrics/dora/sync`, { repository, days }).then(res => res.data),
+    getSBOM: (owner, repo) => get(`${API_BASE}/security/sbom/${owner}/${repo}`)
 };
 
 export default api;

@@ -43,20 +43,6 @@ db.serialize(() => {
         });
     });
 
-    // Migrate: add new columns to workflow_runs if they don't exist yet
-    const newCols = [
-        { name: 'head_commit_message', type: 'TEXT' },
-        { name: 'head_commit_author',  type: 'TEXT' },
-        { name: 'triggering_actor',    type: 'TEXT' },
-    ];
-    newCols.forEach(col => {
-        db.run(`ALTER TABLE workflow_runs ADD COLUMN ${col.name} ${col.type}`, (err) => {
-            if (err && !err.message.includes('duplicate column')) {
-                // column already exists — fine
-            }
-        });
-    });
-
     // Verify tables after all statements complete
     db.all("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name", (err, tables) => {
         if (err) {

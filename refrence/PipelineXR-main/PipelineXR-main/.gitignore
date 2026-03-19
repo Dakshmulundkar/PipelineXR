@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+
+# Environment variables (NEVER commit secrets)
+.env
+.env.local
+.env.production
+
+# Database
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+pipeline-monitoring.log
+
+# Build output
+client/dist/
+dist/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary
+/tmp/
+
+# Docs folder
+docs/
+
+# Trivy source (submodule / vendored copy)
+trivy/
+
+# Kiro IDE
+.kiro/
+
+# Qoder
+.qoder/

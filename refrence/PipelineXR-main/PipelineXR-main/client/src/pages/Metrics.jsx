@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { BarChart2, Clock, RefreshCw, Activity, Zap, Target } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { BarChart2, TrendingUp, Clock, Package, RefreshCw, ChevronDown, Activity, Zap, Target } from 'lucide-react';
 import { Line, Bar } from 'react-chartjs-2';
 import {
     Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement,
@@ -64,7 +64,7 @@ const Metrics = () => {
     const [range, setRange] = useState('7d');
     const [loading, setLoading] = useState(true);
     const [charts, setCharts] = useState({});
-
+    const [lastSync, setLastSync] = useState(new Date());
     const [metricsData, setMetricsData] = useState(null);
     const [secSummary, setSecSummary] = useState(null);
     const controller = useRef(null);
@@ -75,17 +75,7 @@ const Metrics = () => {
         controller.current = new AbortController();
 
         try {
-            // Auto-sync from GitHub API so data is always fresh — no webhook needed
-            if (selectedRepo) {
-                const days = r === '24h' ? 1 : r === '7d' ? 7 : r === '30d' ? 30 : 90;
-                try {
-                    await api.syncDoraMetrics(selectedRepo, days);
-                } catch (syncErr) {
-                    console.warn('DORA sync failed (continuing with cached data):', syncErr.message);
-                }
-            }
-
-            const data = await api.getDoraMetrics(selectedRepo || null, r);
+            const data = await api.getDoraMetrics(selectedRepo || 'Dakshmulundkar/Sentinal-Pay', r);
             setMetricsData(data);
             
             if (data && data.rawRuns) {
@@ -167,11 +157,11 @@ const Metrics = () => {
                 });
             }
 
-            api.getSecuritySummary(selectedRepo || null)
+            api.getSecuritySummary(selectedRepo || 'Dakshmulundkar/Sentinal-Pay')
                 .then(d => setSecSummary(d))
                 .catch(() => setSecSummary({ critical: 0, high: 0, medium: 0, low: 0, total: 0 }));
 
-
+            setLastSync(new Date());
         } catch (e) {
             if (e.name !== 'AbortError') console.error(e);
         } finally { setLoading(false); }
@@ -226,7 +216,7 @@ const Metrics = () => {
                         Performance Analysis
                     </h1>
                     <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.4)', marginTop: 4 }}>
-                        DORA metrics and build efficiency benchmarks{selectedRepo ? ` for ${selectedRepo}` : ''}
+                        DORA metrics and build efficiency benchmarks for {selectedRepo || 'all repositories'}
                     </p>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -270,29 +260,6 @@ const Metrics = () => {
                     </div>
                 ))}
             </div>
-
-            {/* Empty state (no workflow run data) */}
-{!loading && (!metricsData?.rawRuns || metricsData.rawRuns.length === 0) && (
-  <div
-    style={{
-      marginBottom: 24,
-      padding: 16,
-      borderRadius: 14,
-      border: '1px solid rgba(255,255,255,0.08)',
-      background: 'rgba(255,255,255,0.03)',
-      color: 'rgba(255,255,255,0.75)',
-    }}
-  >
-    <div style={{ fontWeight: 700, color: '#fff', marginBottom: 6 }}>
-      No workflow run data yet
-    </div>
-    <div style={{ fontSize: 13, lineHeight: 1.5, color: 'rgba(255,255,255,0.55)' }}>
-      We haven’t recorded any GitHub Actions workflow runs for the selected repository in the last <b>{range}</b>.
-      Trigger a workflow (or ensure GitHub webhooks are configured) to populate build duration, success rate,
-      deployment frequency, and lead time charts.
-    </div>
-  </div>
-)}
 
             {/* Charts Grid */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>

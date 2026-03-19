@@ -298,21 +298,6 @@ const getDependabotAlerts = async (owner, repo) => {
     }
 };
 
-// Fetch list of workflows for a repository
-const getWorkflows = async (owner, repo) => {
-    if (!octokit) await init();
-    try {
-        const response = await octokit.request('GET /repos/{owner}/{repo}/actions/workflows', {
-            owner,
-            repo
-        });
-        return response.data.workflows;
-    } catch (error) {
-        console.error("GitHub Fetch Workflows Error", error.message);
-        return [];
-    }
-};
-
 const triggerWorkflow = async (owner, repo, workflow_id, ref = 'main') => {
     if (!octokit) await init();
     try {
@@ -355,6 +340,5 @@ module.exports = {
     getVulnerabilityStats,
     getDependabotAlerts,
     triggerWorkflow,
-    getWorkflowRunsForMetrics,
-    getWorkflows
+    getWorkflowRunsForMetrics
 };

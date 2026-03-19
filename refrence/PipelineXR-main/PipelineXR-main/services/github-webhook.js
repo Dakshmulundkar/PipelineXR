@@ -135,8 +135,8 @@ class GitHubWebhookService {
                 (user_id, run_id, workflow_id, workflow_name, head_branch, head_sha, status, conclusion, 
                  event, run_number, run_attempt, run_started_at, created_at, updated_at, 
                  repository, owner, html_url, duration_seconds, jobs_count,
-                 risk_score, risk_level, head_commit_message, head_commit_author, triggering_actor)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 risk_score, risk_level)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `);
             const duration = run.run_started_at && run.updated_at ? 
                 Math.floor((new Date(run.updated_at) - new Date(run.run_started_at)) / 1000) : null;
@@ -147,11 +147,7 @@ class GitHubWebhookService {
             });
             const riskLevel = getRiskLevel(deployRisk);
 
-            const commitMsg = run.head_commit?.message || null;
-            const commitAuthor = run.head_commit?.author?.name || null;
-            const actor = run.triggering_actor?.login || null;
-
-            stmt.run(userId, run.id, run.workflow_id, run.name, run.head_branch, run.head_sha, run.status, run.conclusion, run.event, run.run_number, run.run_attempt, run.run_started_at, run.created_at, run.updated_at, repository.full_name, repository.owner.login, run.html_url, duration, run.jobs || 0, deployRisk, riskLevel, commitMsg, commitAuthor, actor, (err) => {
+            stmt.run(userId, run.id, run.workflow_id, run.name, run.head_branch, run.head_sha, run.status, run.conclusion, run.event, run.run_number, run.run_attempt, run.run_started_at, run.created_at, run.updated_at, repository.full_name, repository.owner.login, run.html_url, duration, run.jobs || 0, deployRisk, riskLevel, (err) => {
                 if (err) reject(err);
                 else resolve();
             });
@@ -255,9 +251,9 @@ class GitHubWebhookService {
         });
     }
 
-    // Get recent workflow runs — includes stages (jobs) for each run
+    // Get recent workflow runs
     async getRecentWorkflowRuns(limit = 50, repository = null, userId = null) {
-        return new Promise(async (resolve, reject) => {
+        return new Promise((resolve, reject) => {
             let sql = `SELECT * FROM workflow_runs WHERE 1=1 `;
             const params = [];
             if (repository) {
@@ -270,24 +266,9 @@ class GitHubWebhookService {
             }
             sql += `ORDER BY run_started_at DESC LIMIT ?`;
             params.push(limit);
-
-            this.db.all(sql, params, async (err, rows) => {
-                if (err) return reject(err);
-                try {
-                    const runsWithStages = await Promise.all(rows.map(async (run) => {
-                        const jobsSql = `SELECT job_name, status, conclusion, started_at, completed_at, duration_seconds FROM workflow_jobs WHERE run_id = ? ORDER BY started_at`;
-                        const jobs = await new Promise((res) => {
-                            this.db.all(jobsSql, [run.run_id], (err, jobsRows) => res(err ? [] : jobsRows));
-                        });
-                        const stages = jobs.map(job => ({
-                            name: job.job_name,
-                            status: job.conclusion || job.status || 'pending',
-                            duration: job.duration_seconds || 0
-                        }));
-                        return { ...run, stages };
-                    }));
-                    resolve(runsWithStages);
-                } catch (e) { reject(e); }
+            this.db.all(sql, params, (err, rows) => {
+                if (err) reject(err);
+                else resolve(rows);
             });
         });
     }
