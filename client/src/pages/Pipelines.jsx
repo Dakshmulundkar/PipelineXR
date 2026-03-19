@@ -168,8 +168,8 @@ const Pipelines = () => {
     }, [socket, selectedRepo]); // eslint-disable-line
 
     const total = runs.length;
-    const passed = runs.filter(r => r.conclusion === 'success' || r.status === 'completed').length;
-    const failed = runs.filter(r => r.conclusion === 'failure' || r.status === 'failed').length;
+    const passed = runs.filter(r => r.conclusion === 'success').length;
+    const failed = runs.filter(r => r.conclusion === 'failure' || r.conclusion === 'timed_out' || r.conclusion === 'cancelled').length;
     const rate = total > 0 ? Math.round((passed / total) * 100) : 0;
 
     return (
