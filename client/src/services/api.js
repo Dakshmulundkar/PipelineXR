@@ -52,9 +52,20 @@ export const api = {
     },
 
     // Reports & Tests
-    getTestReports: () => get(`${API_BASE}/reports/tests`),
+    getTestReports: (repo = null) => {
+        let url = `${API_BASE}/reports/tests`;
+        if (repo) url += `?repository=${encodeURIComponent(repo)}`;
+        return get(url);
+    },
 
-    // Security Summary
+    syncReports: (repository) => apiInstance.post(`${API_BASE}/reports/sync`, { repository }).then(res => res.data),
+
+    generateReportPdf: (repo = null) => {
+        let url = `${API_BASE}/reports/download`;
+        if (repo) url += `?repository=${encodeURIComponent(repo)}`;
+        return apiInstance.get(url, { responseType: 'blob' }).then(res => res.data);
+    },
+
     getSecuritySummary: (repo = null) => {
         let url = `${API_BASE}/security/summary`;
         if (repo) url += `?repository=${encodeURIComponent(repo)}`;
@@ -66,8 +77,8 @@ export const api = {
 
     getSecurityInsights: (repo) => get(`${API_BASE}/security/insights?repository=${encodeURIComponent(repo)}`),
 
-    // Reports PDF
-    generateReportPdf: () => apiInstance.get(`${API_BASE}/reports/pdf`, { responseType: 'blob' }).then(res => res.data),
+    // Pipeline sync — pulls runs from GitHub API into local DB
+    syncPipeline: (repository) => apiInstance.post(`${API_BASE}/pipeline/sync`, { repository }).then(res => res.data),
 
     // Deployments
     getDeploymentStats: () => get(`${API_BASE}/deployments/stats`),

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
     Shield, Box, Flame, CheckCircle2, AlertCircle, Activity,
     GitBranch, RefreshCw, TrendingUp, ShieldAlert, Zap,
-    ChevronDown, ChevronUp, ExternalLink, Lock, FileWarning, Eye
+    ChevronDown, ChevronUp, ExternalLink
 } from 'lucide-react';
 import { Doughnut } from 'react-chartjs-2';
 import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js';

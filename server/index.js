@@ -478,7 +478,8 @@ app.get('/api/github/workflows', async (req, res) => {
 app.get('/api/reports/tests', async (req, res) => {
     try {
         const userId = req.session.user?.dbId || 1;
-        const reports = await analytics.getTestReports(userId);
+        const { repository } = req.query;
+        const reports = await analytics.getTestReports(userId, repository || null);
         const enriched = reports.map(r => ({
             ...r,
             pass_rate: r.total_tests > 0 ? Math.round((r.passed / r.total_tests) * 100) : 0
@@ -504,6 +505,93 @@ app.get('/api/reports/summary', async (req, res) => {
         });
     } catch (error) {
         res.status(500).json({ error: 'Failed' });
+    }
+});
+
+// Sync jobs+steps from GitHub API into local DB (no webhooks needed)
+app.post('/api/reports/sync', async (req, res) => {
+    try {
+        const userId = req.session.user?.dbId || 1;
+        const repository = (req.body?.repository || '').toString().trim();
+        if (!repository || !repository.includes('/')) {
+            return res.status(400).json({ error: 'Missing or invalid repository (expected owner/repo)' });
+        }
+        await ensureGithub(req);
+        const result = await analytics.syncJobsFromGitHub(repository, userId);
+        res.json({ success: true, ...result });
+    } catch (error) {
+        console.error('Reports sync error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// PDF download using puppeteer
+app.get('/api/reports/download', async (req, res) => {
+    try {
+        const userId = req.session.user?.dbId || 1;
+        const { repository } = req.query;
+        const reports = await analytics.getTestReports(userId, repository || null);
+        const summary = await analytics.getQualityMetrics(userId);
+
+        const tot = reports.reduce((a, r) => a + (r.total_tests || 0), 0);
+        const pass = reports.reduce((a, r) => a + (r.passed || 0), 0);
+        const fail = reports.reduce((a, r) => a + (r.failed || 0), 0);
+        const avgRate = reports.length > 0
+            ? Math.round(reports.reduce((a, r) => a + (r.pass_rate || 0), 0) / reports.length)
+            : 0;
+
+        const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
+        <style>
+            body { font-family: Arial, sans-serif; padding: 40px; color: #111; }
+            h1 { font-size: 28px; margin-bottom: 4px; }
+            .sub { color: #666; font-size: 13px; margin-bottom: 32px; }
+            .stats { display: flex; gap: 24px; margin-bottom: 32px; }
+            .stat { background: #f5f5f5; border-radius: 10px; padding: 16px 24px; min-width: 120px; }
+            .stat .val { font-size: 28px; font-weight: 800; }
+            .stat .lbl { font-size: 11px; color: #888; text-transform: uppercase; margin-top: 4px; }
+            table { width: 100%; border-collapse: collapse; font-size: 13px; }
+            th { text-align: left; padding: 10px 12px; background: #f0f0f0; font-size: 11px; text-transform: uppercase; color: #666; }
+            td { padding: 10px 12px; border-bottom: 1px solid #eee; }
+            .pass { color: #16a34a; font-weight: 700; }
+            .fail { color: #dc2626; font-weight: 700; }
+        </style></head><body>
+        <h1>PipelineXR Audit Report</h1>
+        <div class="sub">Generated ${new Date().toLocaleString()}${repository ? ` · ${repository}` : ''}</div>
+        <div class="stats">
+            <div class="stat"><div class="val">${tot}</div><div class="lbl">Total Steps</div></div>
+            <div class="stat"><div class="val" style="color:#16a34a">${pass}</div><div class="lbl">Passed</div></div>
+            <div class="stat"><div class="val" style="color:#dc2626">${fail}</div><div class="lbl">Failed</div></div>
+            <div class="stat"><div class="val">${avgRate}%</div><div class="lbl">Quality Index</div></div>
+        </div>
+        <table>
+            <thead><tr><th>Run ID</th><th>Suite / Job</th><th>Steps</th><th>Passed</th><th>Failed</th><th>Rate</th><th>Date</th></tr></thead>
+            <tbody>
+            ${reports.map(r => `<tr>
+                <td>#${r.run_id}</td>
+                <td>${r.suite_name || 'N/A'}</td>
+                <td>${r.total_tests}</td>
+                <td class="pass">${r.passed}</td>
+                <td class="${r.failed > 0 ? 'fail' : ''}">${r.failed}</td>
+                <td>${r.pass_rate}%</td>
+                <td>${r.latest_run ? new Date(r.latest_run).toLocaleDateString() : '-'}</td>
+            </tr>`).join('')}
+            </tbody>
+        </table>
+        </body></html>`;
+
+        const puppeteer = require('puppeteer');
+        const browser = await puppeteer.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] });
+        const page = await browser.newPage();
+        await page.setContent(html, { waitUntil: 'networkidle0' });
+        const pdf = await page.pdf({ format: 'A4', margin: { top: '20px', bottom: '20px', left: '20px', right: '20px' } });
+        await browser.close();
+
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', 'attachment; filename=pipelinexr-audit-report.pdf');
+        res.send(pdf);
+    } catch (error) {
+        console.error('PDF generation error:', error);
+        res.status(500).json({ error: 'Failed to generate PDF' });
     }
 });
 
@@ -854,6 +942,30 @@ app.get('/api/pipeline/runs', async (req, res) => {
         res.json(runs);
     } catch (error) {
         res.status(500).json([]);
+    }
+});
+
+// Sync pipeline runs + jobs from GitHub into local DB
+app.post('/api/pipeline/sync', async (req, res) => {
+    try {
+        const userId = req.session.user?.dbId || 1;
+        const repository = (req.body?.repository || '').toString().trim();
+        if (!repository || !repository.includes('/')) {
+            return res.status(400).json({ error: 'Missing or invalid repository (expected owner/repo)' });
+        }
+        await ensureGithub(req);
+        const [runsResult, jobsResult] = await Promise.allSettled([
+            metricsService.syncWorkflowRunsFromGitHub(repository, 30, userId),
+            analytics.syncJobsFromGitHub(repository, userId)
+        ]);
+        res.json({
+            success: true,
+            runs: runsResult.status === 'fulfilled' ? runsResult.value : { error: runsResult.reason?.message },
+            jobs: jobsResult.status === 'fulfilled' ? jobsResult.value : { error: jobsResult.reason?.message }
+        });
+    } catch (error) {
+        console.error('Pipeline sync error:', error);
+        res.status(500).json({ error: error.message });
     }
 });
 

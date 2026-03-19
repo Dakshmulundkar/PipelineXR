@@ -137,7 +137,24 @@ const Pipelines = () => {
         }
     };
 
-    useEffect(() => { load(); }, [selectedRepo]); // eslint-disable-line
+    const syncAndLoad = async () => {
+        if (!selectedRepo) { load(); return; }
+        setRefreshing(true);
+        try {
+            await api.syncPipeline(selectedRepo);
+        } catch (e) {
+            console.warn('Pipeline sync failed, loading from DB anyway:', e.message);
+        }
+        load();
+    };
+
+    useEffect(() => { syncAndLoad(); }, [selectedRepo]); // eslint-disable-line
+
+    // 30s polling fallback
+    useEffect(() => {
+        const interval = setInterval(() => load(), 30000);
+        return () => clearInterval(interval);
+    }, [selectedRepo]); // eslint-disable-line
 
     useEffect(() => {
         if (!socket) return;
@@ -165,7 +182,7 @@ const Pipelines = () => {
                     <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.4)', marginTop: 4 }}>Real-time monitoring of automated builds and security gates</p>
                 </div>
                 <div style={{ display: 'flex', gap: 12 }}>
-                    <button onClick={load} style={{
+                    <button onClick={syncAndLoad} style={{
                         background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
                         color: 'rgba(255,255,255,0.6)', padding: '10px 16px', borderRadius: 12,
                         fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8,
@@ -214,6 +231,9 @@ const Pipelines = () => {
                         <GitBranch className="mx-auto text-white/10 mb-4" size={48} />
                         <div style={{ color: '#fff', fontWeight: 600 }}>No pipeline runs found</div>
                         <div style={{ color: 'rgba(255,255,255,0.3)', fontSize: 13, marginTop: 4 }}>Select a repository or trigger a new build.</div>
+                        <button onClick={syncAndLoad} style={{ marginTop: 16, background: 'rgba(59,130,246,0.15)', border: '1px solid rgba(59,130,246,0.3)', color: '#60A5FA', padding: '10px 20px', borderRadius: 12, fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                            <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} /> Sync Now
+                        </button>
                     </div>
                 ) : (
                     runs.map((run, i) => {

@@ -64,10 +64,11 @@ function useLiveMetrics(selectedRepo) {
 
     useEffect(() => {
         const fetch = () => {
-             setLoading(true);
-             api.getDoraMetrics(selectedRepo || 'Dakshmulundkar/Sentinal-Pay', '7d')
-                 .then(d => { setMetrics(d); setLoading(false); setLastSync(new Date()); })
-                 .catch(() => { setMetrics(null); setLoading(false); setLastSync(new Date()); });
+            if (!selectedRepo) { setLoading(false); return; }
+            setLoading(true);
+            api.getDoraMetrics(selectedRepo, '7d')
+                .then(d => { setMetrics(d); setLoading(false); setLastSync(new Date()); })
+                .catch(() => { setMetrics(null); setLoading(false); setLastSync(new Date()); });
         };
         fetch();
     }, [selectedRepo]);
