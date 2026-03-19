@@ -172,19 +172,24 @@ const Login = () => {
                         borderRadius: 16,
                         width: '100%'
                     }}>
-                        <div style={{ fontSize: 11, fontWeight: 800, color: 'rgba(255,255,255,0.2)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 12 }}>
+                        <div style={{ fontSize: 11, fontWeight: 800, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 12 }}>
                             Enterprise Grade Security
                         </div>
-                        <div style={{ display: 'flex', justifyContent: 'center', gap: 16, opacity: 0.2, filter: 'grayscale(1)' }}>
-                            <div style={{ height: 20, width: 60, background: '#fff', borderRadius: 4 }} />
-                            <div style={{ height: 20, width: 40, background: '#fff', borderRadius: 4 }} />
-                            <div style={{ height: 20, width: 50, background: '#fff', borderRadius: 4 }} />
+                        <div style={{ display: 'flex', justifyContent: 'center', gap: 10, flexWrap: 'wrap' }}>
+                            {['OAuth 2.0', 'Session Encrypted', 'No Token Storage', 'GitHub Verified'].map(label => (
+                                <div key={label} style={{
+                                    padding: '4px 10px', borderRadius: 6,
+                                    background: 'rgba(255,255,255,0.05)',
+                                    border: '1px solid rgba(255,255,255,0.08)',
+                                    fontSize: 10, fontWeight: 600,
+                                    color: 'rgba(255,255,255,0.4)',
+                                    letterSpacing: '0.03em'
+                                }}>{label}</div>
+                            ))}
                         </div>
                     </div>
 
-                    <p style={{ position: 'absolute', bottom: 40, left: 0, right: 0, fontSize: 11, color: 'rgba(255,255,255,0.15)', fontWeight: 500 }}>
-                        Powered by Antigravity · Version 2.4.0-RC
-                    </p>
+
                 </div>
 
             </div>

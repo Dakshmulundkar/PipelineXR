@@ -29,6 +29,9 @@ export default defineConfig({
         target: 'http://localhost:3001',
         changeOrigin: true,
         ws: true,
+        configure: (proxy) => {
+          proxy.on('error', () => {}); // suppress ECONNABORTED noise on tab close/refresh
+        }
       }
     }
   }
