@@ -137,7 +137,7 @@ const Layout = ({ children }) => {
                 {/* Nav */}
                 <nav style={{ flex: 1, padding: '12px 12px', overflowY: 'auto' }}>
                     <div style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.2)', paddingLeft: 12, marginBottom: 12, letterSpacing: '0.05em' }}>MAIN MENU</div>
-                    {NAV.map(({ label, to, icon: NavIcon }) => {
+                    {NAV.map(({ label, to, icon: NavIcon }) => { // eslint-disable-line no-unused-vars
                         const active = pathname === to;
                         return (
                             <Link key={to} to={to} style={{ textDecoration: 'none' }}>
