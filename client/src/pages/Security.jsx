@@ -245,7 +245,10 @@ const Security = () => {
 
     // Build a severity breakdown trend from vulns that have a timestamp
     useEffect(() => {
-        if (!vulns.length) { setTrendData(null); return; }
+        if (!vulns.length) {
+            setTimeout(() => setTrendData(null), 0);
+            return;
+        }
         // Group by day (last 14 days)
         const days = 14;
         const now = new Date();

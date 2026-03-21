@@ -165,7 +165,10 @@ const Dashboard = () => {
     }, []);
 
     useEffect(() => {
-        if (!selectedRepo) { setLoading(false); return; }
+        if (!selectedRepo) {
+            setTimeout(() => setLoading(false), 0);
+            return;
+        }
         setLoading(true);
 
         const days = range === '24h' ? 1 : range === '7d' ? 7 : 30;

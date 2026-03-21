@@ -7,6 +7,8 @@ const cors = require('cors');
 const session = require('express-session');
 const SQLiteStore = require('connect-sqlite3')(session);
 const rateLimit = require('express-rate-limit');
+const slowDown = require('express-slow-down');
+const helmet = require('helmet');
 const path = require('path');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { initializeDatabase } = require('../services/db-init');
@@ -26,7 +28,27 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIo(server);
 
-// Middleware
+// ── DDoS / Security Middleware ────────────────────────────────────────────────
+
+// 1. Security headers (XSS, clickjacking, MIME sniffing, etc.)
+app.use(helmet({
+    contentSecurityPolicy: false, // disable if you use inline scripts/styles in frontend
+    crossOriginEmbedderPolicy: false,
+}));
+
+// 2. Trust proxy — required so rate limiter sees real IP behind Nginx/Cloudflare
+app.set('trust proxy', 1);
+
+// 3. Block oversized request bodies early (before JSON parse)
+app.use((req, res, next) => {
+    const contentLength = parseInt(req.headers['content-length'] || '0', 10);
+    if (contentLength > 1 * 1024 * 1024) { // 1 MB hard cap
+        return res.status(413).json({ error: 'Payload too large' });
+    }
+    next();
+});
+
+// 4. CORS — only allow your frontend origin
 app.use(cors({
     origin: FRONTEND_URL,
     credentials: true
@@ -54,20 +76,45 @@ app.use(session({
     }
 }));
 
-// Global Rate Limiting
+// ── Rate Limiting (tiered) ────────────────────────────────────────────────────
+
+// Slow down before hard-blocking — adds 500ms delay per request after 50 req/15min
+const speedLimiter = slowDown({
+    windowMs: 15 * 60 * 1000,
+    delayAfter: 50,
+    delayMs: (used) => (used - 50) * 500, // 500ms, 1000ms, 1500ms...
+    maxDelayMs: 10000, // cap at 10s delay
+});
+app.use('/api/', speedLimiter);
+
+// General API: 60 req/15min per IP (tighter than before)
 const apiLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 100, // Limit each IP to 100 requests per windowMs
+    windowMs: 15 * 60 * 1000,
+    max: 60,
     standardHeaders: true,
     legacyHeaders: false,
+    message: { error: 'Too many requests, slow down.' },
+    skip: (req) => req.path === '/api/github/webhook', // webhooks bypass
 });
 app.use('/api/', apiLimiter);
 
-// Stricter Rate Limiting for expensive endpoints
+// Auth endpoints: 10 attempts/15min — brute force protection
+const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 10,
+    message: { error: 'Too many auth attempts, try again later.' },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+app.use('/auth/', authLimiter);
+
+// Expensive endpoints: scans, PDF, sync — 10/hour
 const expensiveLimiter = rateLimit({
-    windowMs: 60 * 60 * 1000, // 1 hour
-    max: 20, // Limit each IP to 20 expensive requests per hour
-    message: { error: 'Too many requests, please try again later.' }
+    windowMs: 60 * 60 * 1000,
+    max: 10,
+    message: { error: 'Too many requests, please try again later.' },
+    standardHeaders: true,
+    legacyHeaders: false,
 });
 
 // Load Services
@@ -509,7 +556,7 @@ app.get('/api/reports/summary', async (req, res) => {
 });
 
 // Sync jobs+steps from GitHub API into local DB (no webhooks needed)
-app.post('/api/reports/sync', async (req, res) => {
+app.post('/api/reports/sync', expensiveLimiter, async (req, res) => {
     try {
         const userId = req.session.user?.dbId || 1;
         const repository = (req.body?.repository || '').toString().trim();
@@ -526,7 +573,7 @@ app.post('/api/reports/sync', async (req, res) => {
 });
 
 // PDF download using puppeteer
-app.get('/api/reports/download', async (req, res) => {
+app.get('/api/reports/download', expensiveLimiter, async (req, res) => {
     try {
         const userId = req.session.user?.dbId || 1;
         const { repository } = req.query;
@@ -673,7 +720,7 @@ app.get('/api/security/vulnerabilities/:owner/:repo', async (req, res) => {
     }
 });
 
-app.post('/api/security/scan/trivy', async (req, res) => {
+app.post('/api/security/scan/trivy', expensiveLimiter, async (req, res) => {
     try {
         const userId = req.session.user?.dbId || 1;
         const { type, target, repository, options = {} } = req.body;
@@ -719,7 +766,7 @@ app.post('/api/security/scan/trivy', async (req, res) => {
 });
 
 // POST /api/security/scan/repo — full clone → Docker/TrivyLite → score pipeline
-app.post('/api/security/scan/repo', async (req, res) => {
+app.post('/api/security/scan/repo', expensiveLimiter, async (req, res) => {
     try {
         const userId = req.session.user?.dbId || 1;
         const { owner, repo, ref, options = {} } = req.body;
@@ -860,7 +907,7 @@ app.get('/api/security/scan/history', async (req, res) => {
 });
 
 // POST /api/security/scan/full — run all scanners
-app.post('/api/security/scan/full', async (req, res) => {
+app.post('/api/security/scan/full', expensiveLimiter, async (req, res) => {
     try {
         const userId = req.session.user?.dbId || 1;
         const { repository } = req.body;
@@ -1051,7 +1098,7 @@ app.get('/api/datadog/metrics/query', async (req, res) => {
 // --------------------------------------------------------------------------
 // Metrics Routes (DORA) - Sync workflow runs from GitHub
 // --------------------------------------------------------------------------
-app.post('/api/metrics/dora/sync', async (req, res) => {
+app.post('/api/metrics/dora/sync', expensiveLimiter, async (req, res) => {
   try {
     const userId = req.session.user?.dbId || 1;
     const repository = (req.body?.repository || req.query?.repository || '').toString().trim();

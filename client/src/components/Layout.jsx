@@ -137,7 +137,7 @@ const Layout = ({ children }) => {
                 {/* Nav */}
                 <nav style={{ flex: 1, padding: '12px 12px', overflowY: 'auto' }}>
                     <div style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.2)', paddingLeft: 12, marginBottom: 12, letterSpacing: '0.05em' }}>MAIN MENU</div>
-                    {NAV.map(({ label, to, icon: Icon }) => {
+                    {NAV.map(({ label, to, icon: NavIcon }) => {
                         const active = pathname === to;
                         return (
                             <Link key={to} to={to} style={{ textDecoration: 'none' }}>
@@ -148,7 +148,7 @@ const Layout = ({ children }) => {
                                     color: active ? '#fff' : 'rgba(255,255,255,0.4)',
                                     marginBottom: 4
                                 }} className="hover:bg-white/5 group">
-                                    <Icon size={16} style={{ color: active ? '#3B82F6' : 'inherit' }} />
+                                    <NavIcon size={16} style={{ color: active ? '#3B82F6' : 'inherit' }} />
                                     <span style={{ fontSize: 13, fontWeight: active ? 600 : 500 }}>{label}</span>
                                     {active && <ChevronRight size={12} style={{ marginLeft: 'auto', opacity: 0.5 }} />}
                                 </div>
