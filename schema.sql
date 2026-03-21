@@ -96,7 +96,7 @@ CREATE TABLE IF NOT EXISTS github_webhooks (
 CREATE TABLE IF NOT EXISTS workflow_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER,
-    run_id INTEGER UNIQUE NOT NULL,
+    run_id INTEGER NOT NULL,
     workflow_id INTEGER,
     workflow_name TEXT,
     head_branch TEXT,
@@ -123,7 +123,8 @@ CREATE TABLE IF NOT EXISTS workflow_runs (
     high_vulns INTEGER DEFAULT 0,
     medium_vulns INTEGER DEFAULT 0,
     low_vulns INTEGER DEFAULT 0,
-    unknown_vulns INTEGER DEFAULT 0
+    unknown_vulns INTEGER DEFAULT 0,
+    UNIQUE(user_id, run_id)
 );
 
 -- Index for faster repository-based queries

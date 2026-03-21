@@ -448,7 +448,7 @@ async function scanRepository(repoFullName, token = null, ref = null, options = 
             } catch (e) { /* non-fatal */ }
         }
 
-        return {
+        const scanResult = {
             risk_score:       riskScore,
             risk_level:       getRiskLevel(riskScore),
             security_metrics: counts,
@@ -457,6 +457,14 @@ async function scanRepository(repoFullName, token = null, ref = null, options = 
             scan_status:      'success',
             engine:           usedDocker ? 'trivy-docker' : 'trivylite'
         };
+
+        // Fire-and-forget to Datadog
+        try {
+            const datadog = require('./datadog');
+            datadog.trackSecurityScan(repoFullName, counts).catch(() => {});
+        } catch (e) { /* non-fatal */ }
+
+        return scanResult;
 
     } catch (err) {
         console.error(`[securityScanner] Scan failed for ${repoFullName}: ${err.message}`);

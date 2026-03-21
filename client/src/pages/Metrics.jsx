@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { BarChart2, Clock, RefreshCw, Activity, Zap, Target } from 'lucide-react';
+import { BarChart2, Clock, RefreshCw, Activity, Zap, Target, Database } from 'lucide-react';
 import { Line, Bar } from 'react-chartjs-2';
 import {
     Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement,
@@ -20,7 +20,7 @@ const LINE_OPTS = (label, unit = '') => ({
     scales: {
         x: {
             grid: { display: false },
-            ticks: { color: 'rgba(255,255,255,0.3)', font: { size: 10, weight: '500' }, maxTicksLimit: 7 },
+            ticks: { color: 'rgba(255,255,255,0.3)', font: { size: 10, weight: '500' }, maxTicksLimit: 12, maxRotation: 0 },
             border: { display: false }
         },
         y: {
@@ -51,14 +51,6 @@ const LINE_OPTS = (label, unit = '') => ({
 
 const RANGES = ['24h', '7d', '30d', '90d'];
 
-function formatTimestamp(timestamp, range) {
-    const d = new Date(timestamp);
-    if (isNaN(d.getTime())) return '';
-    return range === '24h' 
-        ? d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) 
-        : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
-
 const Metrics = () => {
     const { selectedRepo, socket } = useAppContext();
     const [range, setRange] = useState('7d');
@@ -68,6 +60,36 @@ const Metrics = () => {
     const [metricsData, setMetricsData] = useState(null);
     const [secSummary, setSecSummary] = useState(null);
     const controller = useRef(null);
+
+    // Datadog panel state — shows PipelineXR metrics we push to Datadog
+    const [ddEnabled, setDdEnabled] = useState(false);
+    const DD_METRICS = [
+        { query: 'build.success',          label: 'Build Successes',    color: '#34D399', unit: '' },
+        { query: 'build.failure',          label: 'Build Failures',     color: '#F87171', unit: '' },
+        { query: 'build.duration_seconds', label: 'Avg Build Duration', color: '#60A5FA', unit: 's' },
+        { query: 'security.critical',      label: 'Critical Vulns',     color: '#EF4444', unit: '' },
+        { query: 'security.high',          label: 'High Vulns',         color: '#F97316', unit: '' },
+        { query: 'dora.success_rate',      label: 'DORA Success Rate',  color: '#A78BFA', unit: '%' },
+    ];
+    const [ddMetric, setDdMetric] = useState(DD_METRICS[0]);
+    const [ddRange, setDdRange] = useState('24h');
+    const [ddPoints, setDdPoints] = useState(null);
+    const [ddLoading, setDdLoading] = useState(false);
+    const [ddError, setDdError] = useState(null);
+
+    const loadDatadog = useCallback(async (q, r) => {
+        setDdLoading(true);
+        setDdError(null);
+        try {
+            const res = await api.queryDatadogMetric(q, r, selectedRepo || null);
+            setDdPoints(res.points || []);
+        } catch (e) {
+            setDdError(e?.response?.data?.error || e.message);
+            setDdPoints([]);
+        } finally {
+            setDdLoading(false);
+        }
+    }, [selectedRepo]);
 
     const load = useCallback(async (r) => {
         setLoading(true);
@@ -89,81 +111,166 @@ const Metrics = () => {
             setMetricsData(data);
             
             if (data && data.rawRuns) {
-                // Ensure runs are sorted chronologically
-                const runs = data.rawRuns.reverse();
-    
+                const days = r === '24h' ? 1 : r === '7d' ? 7 : r === '30d' ? 30 : 90;
+                const use24h = r === '24h';
+                const now = new Date();
+
+                // For 24h: slot by hour (24 slots). For longer ranges: slot by day.
+                let slots = [];
+                let slotKey; // fn: run -> slot string
+                let fmtLabel; // fn: slot string -> display label
+
+                if (use24h) {
+                    // 24 hourly slots: "YYYY-MM-DDTHH"
+                    for (let i = 23; i >= 0; i--) {
+                        const d = new Date(now);
+                        d.setMinutes(0, 0, 0);
+                        d.setHours(d.getHours() - i);
+                        slots.push(d.toISOString().slice(0, 13)); // "2026-03-20T14"
+                    }
+                    slotKey = (run) => (run.run_started_at || '').slice(0, 13);
+                    fmtLabel = (s) => {
+                        const h = parseInt(s.slice(11, 13), 10);
+                        const ampm = h >= 12 ? 'PM' : 'AM';
+                        return `${h % 12 || 12}${ampm}`;
+                    };
+                } else {
+                    // Daily slots: "YYYY-MM-DD"
+                    for (let i = days - 1; i >= 0; i--) {
+                        const d = new Date(now);
+                        d.setDate(d.getDate() - i);
+                        slots.push(d.toISOString().split('T')[0]);
+                    }
+                    slotKey = (run) => (run.run_started_at || '').split('T')[0];
+                    fmtLabel = (s) => new Date(s + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                }
+
+                // Group runs by slot
+                const bySlot = {};
+                for (const run of data.rawRuns) {
+                    const key = slotKey(run);
+                    if (!key) continue;
+                    if (!bySlot[key]) bySlot[key] = [];
+                    bySlot[key].push(run);
+                }
+
+                const labels = slots.map(fmtLabel);
+
+                // Build per-metric aggregated values per slot
+                const buildDurationData = slots.map(slot => {
+                    const runs = bySlot[slot];
+                    if (!runs || runs.length === 0) return 0;
+                    const durations = runs.map(run => {
+                        const start = new Date(run.run_started_at);
+                        const end = new Date(run.updated_at);
+                        return (end - start) / 60000;
+                    }).filter(v => v > 0);
+                    if (durations.length === 0) return 0;
+                    return parseFloat((durations.reduce((a, b) => a + b, 0) / durations.length).toFixed(1));
+                });
+
+                const successRateData = slots.map(slot => {
+                    const runs = bySlot[slot];
+                    if (!runs || runs.length === 0) return 0;
+                    const pct = (runs.filter(run => run.conclusion === 'success').length / runs.length) * 100;
+                    return parseFloat(pct.toFixed(1));
+                });
+
+                const deployFreqData = slots.map(slot => {
+                    const runs = bySlot[slot];
+                    return runs ? runs.filter(run => run.conclusion === 'success').length : 0;
+                });
+
+                const leadTimeData = slots.map(slot => {
+                    const runs = bySlot[slot];
+                    if (!runs || runs.length === 0) return 0;
+                    const waits = runs.map(run => {
+                        const start = new Date(run.run_started_at);
+                        const created = new Date(run.created_at);
+                        return (start - created) / 3600000;
+                    }).filter(v => v >= 0);
+                    if (waits.length === 0) return 0;
+                    return parseFloat((waits.reduce((a, b) => a + b, 0) / waits.length).toFixed(2));
+                });
+
+                // Point radius: show dot only on slots that have actual data
+                const hasData = slots.map(slot => !!bySlot[slot]);
+                const pointRadii = (dataArr) => dataArr.map((v, i) => hasData[i] ? 4 : 0);
+                const pointHoverRadii = (dataArr) => dataArr.map((v, i) => hasData[i] ? 6 : 0);
+
                 setCharts({
-                    buildDuration: runs.length ? {
-                        labels: runs.map(run => formatTimestamp(run.run_started_at, r)),
+                    buildDuration: {
+                        labels,
                         datasets: [{
-                            label: 'Build Duration (m)',
-                            data: runs.map(run => {
-                                const start = new Date(run.run_started_at);
-                                const end = new Date(run.updated_at);
-                                return ((end - start) / 60000).toFixed(1);
-                            }),
+                            label: 'Avg Build Duration (m)',
+                            data: buildDurationData,
                             borderColor: '#60A5FA',
                             backgroundColor: (context) => {
                                 const ctx = context.chart.ctx;
-                                const gradient = ctx.createLinearGradient(0, 0, 0, 300);
-                                gradient.addColorStop(0, 'rgba(96, 165, 250, 0.2)');
-                                gradient.addColorStop(1, 'rgba(96, 165, 250, 0)');
-                                return gradient;
+                                const g = ctx.createLinearGradient(0, 0, 0, 300);
+                                g.addColorStop(0, 'rgba(96, 165, 250, 0.2)');
+                                g.addColorStop(1, 'rgba(96, 165, 250, 0)');
+                                return g;
                             },
-                            fill: true, tension: 0.4, pointRadius: 4, pointBackgroundColor: '#60A5FA', pointBorderColor: '#fff'
+                            fill: true, tension: 0.4,
+                            pointRadius: pointRadii(buildDurationData),
+                            pointHoverRadius: pointHoverRadii(buildDurationData),
+                            pointBackgroundColor: '#60A5FA', pointBorderColor: '#fff',
                         }]
-                    } : null,
-                    successRate: runs.length ? {
-                        labels: runs.map(run => formatTimestamp(run.run_started_at, r)),
+                    },
+                    successRate: {
+                        labels,
                         datasets: [{
-                            label: 'SuccessRate',
-                            data: runs.map(run => run.conclusion === 'success' ? 100 : 0),
+                            label: 'Success Rate (%)',
+                            data: successRateData,
                             borderColor: '#34D399',
                             backgroundColor: (context) => {
                                 const ctx = context.chart.ctx;
-                                const gradient = ctx.createLinearGradient(0, 0, 0, 300);
-                                gradient.addColorStop(0, 'rgba(52, 211, 153, 0.2)');
-                                gradient.addColorStop(1, 'rgba(52, 211, 153, 0)');
-                                return gradient;
+                                const g = ctx.createLinearGradient(0, 0, 0, 300);
+                                g.addColorStop(0, 'rgba(52, 211, 153, 0.2)');
+                                g.addColorStop(1, 'rgba(52, 211, 153, 0)');
+                                return g;
                             },
-                            fill: true, tension: 0.4, pointRadius: 4, pointBackgroundColor: '#34D399', pointBorderColor: '#fff'
+                            fill: true, tension: 0.4,
+                            pointRadius: pointRadii(successRateData),
+                            pointHoverRadius: pointHoverRadii(successRateData),
+                            pointBackgroundColor: '#34D399', pointBorderColor: '#fff',
                         }]
-                    } : null,
-                    deployFreq: runs.length ? {
-                        labels: runs.map(run => formatTimestamp(run.run_started_at, r)),
+                    },
+                    deployFreq: {
+                        labels,
                         datasets: [{
-                            label: 'Deployments',
-                            data: runs.map(() => 1), 
+                            label: 'Successful Deployments',
+                            data: deployFreqData,
                             backgroundColor: (context) => {
                                 const ctx = context.chart.ctx;
-                                const gradient = ctx.createLinearGradient(0, 0, 0, 300);
-                                gradient.addColorStop(0, '#8B5CF6');
-                                gradient.addColorStop(1, 'rgba(139, 92, 246, 0.2)');
-                                return gradient;
+                                const g = ctx.createLinearGradient(0, 0, 0, 300);
+                                g.addColorStop(0, '#8B5CF6');
+                                g.addColorStop(1, 'rgba(139, 92, 246, 0.2)');
+                                return g;
                             },
-                            borderRadius: 8, borderSkipped: false, barThickness: 20
+                            borderRadius: 6, borderSkipped: false, barThickness: use24h ? 8 : days <= 7 ? 20 : days <= 30 ? 10 : 5,
                         }]
-                    } : null,
-                    leadTime: runs.length ? {
-                        labels: runs.map(run => formatTimestamp(run.run_started_at, r)), 
+                    },
+                    leadTime: {
+                        labels,
                         datasets: [{
-                            label: 'Wait Time (h)',
-                            data: runs.map(run => {
-                                 const start = new Date(run.run_started_at);
-                                 const created = new Date(run.created_at);
-                                 return ((start - created) / 3600000).toFixed(2);
-                            }),
+                            label: 'Avg Wait Time (h)',
+                            data: leadTimeData,
                             borderColor: '#A855F7',
                             backgroundColor: (context) => {
                                 const ctx = context.chart.ctx;
-                                const gradient = ctx.createLinearGradient(0, 0, 0, 300);
-                                gradient.addColorStop(0, 'rgba(168, 85, 247, 0.2)');
-                                gradient.addColorStop(1, 'rgba(168, 85, 247, 0)');
-                                return gradient;
+                                const g = ctx.createLinearGradient(0, 0, 0, 300);
+                                g.addColorStop(0, 'rgba(168, 85, 247, 0.2)');
+                                g.addColorStop(1, 'rgba(168, 85, 247, 0)');
+                                return g;
                             },
-                            fill: true, tension: 0.4, pointRadius: 4, pointBackgroundColor: '#A855F7', pointBorderColor: '#fff'
+                            fill: true, tension: 0.4,
+                            pointRadius: pointRadii(leadTimeData),
+                            pointHoverRadius: pointHoverRadii(leadTimeData),
+                            pointBackgroundColor: '#A855F7', pointBorderColor: '#fff',
                         }]
-                    } : null,
+                    },
                 });
             }
 
@@ -178,6 +285,12 @@ const Metrics = () => {
     }, [selectedRepo]);
 
     useEffect(() => { load(range); }, [range, load]);
+
+    // Always show the Datadog panel — data comes from local DB, not Datadog API
+    useEffect(() => {
+        setDdEnabled(true);
+        loadDatadog(ddMetric.query, ddRange);
+    }, [selectedRepo]); // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         if (!socket) return;
@@ -297,18 +410,93 @@ const Metrics = () => {
             {/* Charts Grid */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
                 <ChartCard title="Build Efficiency" icon={Clock} badge={{ label: 'Mins', className: 'badge-blue' }}>
-                    {loading ? <div className="h-full skeleton rounded-xl" /> : charts.buildDuration ? <Line data={charts.buildDuration} options={LINE_OPTS('Duration', 'm')} /> : <div className="flex h-full w-full items-center justify-center text-slate-500 text-sm">No data available</div>}
+                    {loading ? <div className="h-full skeleton rounded-xl" /> : charts.buildDuration ? <Line key={`bd-${range}`} data={charts.buildDuration} options={LINE_OPTS('Duration', 'm')} /> : <div className="flex h-full w-full items-center justify-center text-slate-500 text-sm">No data available</div>}
                 </ChartCard>
                 <ChartCard title="Mission Success" icon={Target} badge={{ label: 'Percentage', className: 'badge-green' }}>
-                    {loading ? <div className="h-full skeleton rounded-xl" /> : charts.successRate ? <Line data={charts.successRate} options={LINE_OPTS('Rate', '%')} /> : <div className="flex h-full w-full items-center justify-center text-slate-500 text-sm">No data available</div>}
+                    {loading ? <div className="h-full skeleton rounded-xl" /> : charts.successRate ? <Line key={`sr-${range}`} data={charts.successRate} options={LINE_OPTS('Rate', '%')} /> : <div className="flex h-full w-full items-center justify-center text-slate-500 text-sm">No data available</div>}
                 </ChartCard>
                 <ChartCard title="Deployment Frequency" icon={BarChart2} badge={{ label: 'Volume', className: 'badge-muted' }}>
-                    {loading ? <div className="h-full skeleton rounded-xl" /> : charts.deployFreq ? <Bar data={charts.deployFreq} options={LINE_OPTS('Deploys')} /> : <div className="flex h-full w-full items-center justify-center text-slate-500 text-sm">No data available</div>}
+                    {loading ? <div className="h-full skeleton rounded-xl" /> : charts.deployFreq ? <Bar key={`df-${range}`} data={charts.deployFreq} options={LINE_OPTS('Deploys')} /> : <div className="flex h-full w-full items-center justify-center text-slate-500 text-sm">No data available</div>}
                 </ChartCard>
                 <ChartCard title="Wait Time Metrics" icon={Zap} badge={{ label: 'Hours', className: 'badge-muted' }}>
-                    {loading ? <div className="h-full skeleton rounded-xl" /> : charts.leadTime ? <Line data={charts.leadTime} options={LINE_OPTS('Hours', 'h')} /> : <div className="flex h-full w-full items-center justify-center text-slate-500 text-sm">No data available</div>}
+                    {loading ? <div className="h-full skeleton rounded-xl" /> : charts.leadTime ? <Line key={`lt-${range}`} data={charts.leadTime} options={LINE_OPTS('Hours', 'h')} /> : <div className="flex h-full w-full items-center justify-center text-slate-500 text-sm">No data available</div>}
                 </ChartCard>
             </div>
+
+            {/* Datadog Live Metrics */}
+            {ddEnabled && (
+                <div style={{ marginTop: 32 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+                        <Database size={16} color="#7C3AED" />
+                        <span style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>Datadog — PipelineXR Metrics</span>
+                        <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6, background: 'rgba(124,58,237,0.15)', color: '#A78BFA', border: '1px solid rgba(124,58,237,0.3)' }}>live</span>
+                    </div>
+
+                    {/* Metric selector + range */}
+                    <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
+                        {DD_METRICS.map(m => (
+                            <button key={m.query}
+                                onClick={() => { setDdMetric(m); loadDatadog(m.query, ddRange); }}                                style={{
+                                    padding: '7px 14px', borderRadius: 10, fontSize: 12, fontWeight: 600,
+                                    border: `1px solid ${ddMetric.query === m.query ? m.color : 'rgba(255,255,255,0.08)'}`,
+                                    cursor: 'pointer', transition: 'all 0.2s',
+                                    background: ddMetric.query === m.query ? `${m.color}22` : 'rgba(255,255,255,0.03)',
+                                    color: ddMetric.query === m.query ? m.color : 'rgba(255,255,255,0.4)',
+                                }}
+                            >{m.label}</button>
+                        ))}
+                        <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+                            {['1h', '6h', '24h', '7d'].map(r => (
+                                <button key={r} onClick={() => { setDdRange(r); loadDatadog(ddMetric.query, r); }}
+                                    style={{
+                                        padding: '7px 12px', borderRadius: 9, fontSize: 12, fontWeight: 600,
+                                        border: 'none', cursor: 'pointer',
+                                        background: ddRange === r ? 'rgba(124,58,237,0.3)' : 'rgba(255,255,255,0.04)',
+                                        color: ddRange === r ? '#A78BFA' : 'rgba(255,255,255,0.4)',
+                                    }}
+                                >{r}</button>
+                            ))}
+                            <button onClick={() => loadDatadog(ddMetric.query, ddRange)}
+                                style={{ padding: '7px 12px', borderRadius: 9, fontSize: 12, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.5)', cursor: 'pointer' }}
+                            ><RefreshCw size={12} className={ddLoading ? 'animate-spin' : ''} /></button>
+                        </div>
+                    </div>
+
+                    {/* Chart */}
+                    <div style={{
+                        background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.07)',
+                        borderRadius: 16, padding: 24, minHeight: 220,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}>
+                        {ddLoading && <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13 }}>Loading…</span>}
+                        {ddError && <span style={{ color: '#F87171', fontSize: 13 }}>Datadog query failed — check APP_KEY has metrics_read scope.</span>}
+                        {!ddLoading && !ddError && ddPoints !== null && (
+                            ddPoints.length === 0
+                                ? <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 13 }}>No data yet — metrics will appear after pipelines run.</span>
+                                : <div style={{ width: '100%', height: 200 }}>
+                                    <Line
+                                        data={{
+                                            labels: ddPoints.map(p => new Date(p.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })),
+                                            datasets: [{
+                                                label: ddMetric.label,
+                                                data: ddPoints.map(p => p.value?.toFixed ? Number(p.value.toFixed(2)) : p.value),
+                                                borderColor: ddMetric.color,
+                                                backgroundColor: (ctx) => {
+                                                    const g = ctx.chart.ctx.createLinearGradient(0, 0, 0, 200);
+                                                    g.addColorStop(0, `${ddMetric.color}40`);
+                                                    g.addColorStop(1, `${ddMetric.color}00`);
+                                                    return g;
+                                                },
+                                                fill: true, tension: 0.4, pointRadius: 3, pointBackgroundColor: ddMetric.color,
+                                            }]
+                                        }}
+                                        options={LINE_OPTS(ddMetric.label, ddMetric.unit)}
+                                    />
+                                  </div>
+                        )}
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

@@ -30,6 +30,7 @@
   "license": "MIT",
   "type": "commonjs",
   "dependencies": {
+    "@datadog/datadog-api-client": "^1.53.0",
     "@google/generative-ai": "^0.24.1",
     "connect-sqlite3": "^0.9.16",
     "cors": "^2.8.6",

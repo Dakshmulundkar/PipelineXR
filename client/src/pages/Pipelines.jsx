@@ -1,9 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { GitBranch, PlayCircle, Clock, RefreshCw, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
-import { Activity, ShieldCheck, User, ExternalLink } from 'lucide-react';
+import { Activity, ShieldCheck, User, ExternalLink, TrendingUp } from 'lucide-react';
+import { Bar } from 'react-chartjs-2';
+import {
+    Chart as ChartJS, CategoryScale, LinearScale, BarElement,
+    Title, Tooltip, Legend
+} from 'chart.js';
 import { api } from '../services/api';
 import { useAppContext } from '../contexts/AppContext';
 import PipelineStageBar from '../components/PipelineStageBar';
+
+ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
 
 const statusColor = {
     success: '#34D399',
@@ -172,6 +179,36 @@ const Pipelines = () => {
     const failed = runs.filter(r => r.conclusion === 'failure' || r.conclusion === 'timed_out' || r.conclusion === 'cancelled').length;
     const rate = total > 0 ? Math.round((passed / total) * 100) : 0;
 
+    // Build a daily run history chart from the loaded runs
+    const runHistoryChart = (() => {
+        if (!runs.length) return null;
+        const days = 14;
+        const now = new Date();
+        const slots = [];
+        for (let i = days - 1; i >= 0; i--) {
+            const d = new Date(now);
+            d.setDate(d.getDate() - i);
+            slots.push(d.toISOString().split('T')[0]);
+        }
+        const byDay = {};
+        for (const r of runs) {
+            const day = (r.run_started_at || '').split('T')[0];
+            if (!day || !slots.includes(day)) continue;
+            if (!byDay[day]) byDay[day] = { success: 0, failed: 0 };
+            if (r.conclusion === 'success') byDay[day].success++;
+            else if (r.conclusion === 'failure' || r.conclusion === 'timed_out' || r.conclusion === 'cancelled') byDay[day].failed++;
+        }
+        if (!Object.keys(byDay).length) return null;
+        const labels = slots.map(s => new Date(s + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+        return {
+            labels,
+            datasets: [
+                { label: 'Passed', data: slots.map(s => byDay[s]?.success || 0), backgroundColor: 'rgba(52,211,153,0.7)', borderRadius: 6, borderSkipped: false, barThickness: 10 },
+                { label: 'Failed', data: slots.map(s => byDay[s]?.failed || 0), backgroundColor: 'rgba(248,113,113,0.7)', borderRadius: 6, borderSkipped: false, barThickness: 10 },
+            ],
+        };
+    })();
+
     return (
         <div style={{ padding: '32px', maxWidth: 1400, margin: '0 auto', animation: 'fadeIn 0.5s ease-out' }}>
 
@@ -219,6 +256,42 @@ const Pipelines = () => {
                     </div>
                 ))}
             </div>
+
+            {/* Run History Chart */}
+            {runHistoryChart && (
+                <div style={{ background: 'rgba(28,28,30,0.4)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 20, padding: 24, marginBottom: 24 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+                        <TrendingUp size={14} style={{ color: '#60A5FA' }} />
+                        <span style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>Run History</span>
+                        <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)' }}>Last 14 days</span>
+                        <div style={{ marginLeft: 'auto', display: 'flex', gap: 16 }}>
+                            {[{ label: 'Passed', color: '#34D399' }, { label: 'Failed', color: '#F87171' }].map(l => (
+                                <div key={l.label} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'rgba(255,255,255,0.5)' }}>
+                                    <div style={{ width: 10, height: 10, borderRadius: 3, background: l.color }} /> {l.label}
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                    <div style={{ height: 140 }}>
+                        <Bar
+                            data={runHistoryChart}
+                            options={{
+                                responsive: true, maintainAspectRatio: false,
+                                interaction: { mode: 'index', intersect: false },
+                                animation: { duration: 1200, easing: 'easeOutQuart' },
+                                scales: {
+                                    x: { stacked: true, grid: { display: false }, ticks: { color: 'rgba(255,255,255,0.3)', font: { size: 10 }, maxTicksLimit: 10, maxRotation: 0 }, border: { display: false } },
+                                    y: { stacked: true, grid: { color: 'rgba(255,255,255,0.03)' }, ticks: { color: 'rgba(255,255,255,0.3)', font: { size: 10 }, padding: 8, stepSize: 1 }, border: { display: false }, beginAtZero: true },
+                                },
+                                plugins: {
+                                    legend: { display: false },
+                                    tooltip: { backgroundColor: 'rgba(28,28,30,0.95)', borderColor: 'rgba(255,255,255,0.1)', borderWidth: 1, titleColor: '#fff', bodyColor: 'rgba(255,255,255,0.7)', padding: 12, cornerRadius: 12 },
+                                },
+                            }}
+                        />
+                    </div>
+                </div>
+            )}
 
             {/* Run List */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>

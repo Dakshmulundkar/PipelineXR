@@ -2,10 +2,17 @@ import { useState, useEffect, useCallback } from 'react';
 import {
     FileText, Download, Search, CheckCircle2,
     XCircle, Clock, RefreshCw, ChevronRight,
-    Filter, PieChart
+    Filter, PieChart, TrendingUp
 } from 'lucide-react';
+import { Line, Bar } from 'react-chartjs-2';
+import {
+    Chart as ChartJS, CategoryScale, LinearScale, PointElement,
+    LineElement, BarElement, Title, Tooltip, Legend, Filler
+} from 'chart.js';
 import { api } from '../services/api';
 import { useAppContext } from '../contexts/AppContext';
+
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Title, Tooltip, Legend, Filler);
 
 const Reports = () => {
     const { selectedRepo } = useAppContext();
@@ -90,6 +97,30 @@ const Reports = () => {
         ? Math.round(data.reduce((a, r) => a + (r.pass_rate || 0), 0) / data.length)
         : 0;
 
+    // Build trend charts from report data (sorted by date)
+    const sorted = [...data].sort((a, b) => new Date(a.latest_run || 0) - new Date(b.latest_run || 0));
+    const trendLabels = sorted.map(r => r.latest_run
+        ? new Date(r.latest_run).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+        : `#${r.run_id}`
+    );
+    const passRateTrend = sorted.map(r => r.pass_rate || 0);
+    const stepsTrend    = sorted.map(r => r.total_tests || 0);
+    const hasChartData  = sorted.length > 1;
+
+    const trendOpts = (unit = '') => ({
+        responsive: true, maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        animation: { duration: 1200, easing: 'easeOutQuart' },
+        scales: {
+            x: { grid: { display: false }, ticks: { color: 'rgba(255,255,255,0.3)', font: { size: 10 }, maxTicksLimit: 10, maxRotation: 0 }, border: { display: false } },
+            y: { grid: { color: 'rgba(255,255,255,0.03)' }, ticks: { color: 'rgba(255,255,255,0.3)', font: { size: 10 }, padding: 8 }, border: { display: false }, beginAtZero: true },
+        },
+        plugins: {
+            legend: { display: false },
+            tooltip: { backgroundColor: 'rgba(28,28,30,0.95)', borderColor: 'rgba(255,255,255,0.1)', borderWidth: 1, titleColor: '#fff', bodyColor: 'rgba(255,255,255,0.7)', padding: 12, cornerRadius: 12, displayColors: false, callbacks: { label: ctx => ` ${ctx.parsed.y}${unit}` } },
+        },
+    });
+
     return (
         <div style={{ padding: '32px', maxWidth: 1400, margin: '0 auto', animation: 'fadeIn 0.5s ease-out' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 32 }}>
@@ -149,6 +180,68 @@ const Reports = () => {
                     </div>
                 ))}
             </div>
+
+            {/* Trend Charts */}
+            {hasChartData && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 24 }}>
+                    <div style={{ background: 'rgba(28,28,30,0.4)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 20, padding: 24 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+                            <TrendingUp size={14} style={{ color: '#34D399' }} />
+                            <span style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>Pass Rate Trend</span>
+                        </div>
+                        <div style={{ height: 140 }}>
+                            <Line
+                                data={{
+                                    labels: trendLabels,
+                                    datasets: [{
+                                        label: 'Pass Rate',
+                                        data: passRateTrend,
+                                        borderColor: '#34D399',
+                                        backgroundColor: (ctx) => {
+                                            const g = ctx.chart.ctx.createLinearGradient(0, 0, 0, 140);
+                                            g.addColorStop(0, 'rgba(52,211,153,0.2)');
+                                            g.addColorStop(1, 'rgba(52,211,153,0)');
+                                            return g;
+                                        },
+                                        fill: true, tension: 0.4,
+                                        pointRadius: passRateTrend.map(v => v > 0 ? 4 : 0),
+                                        pointHoverRadius: 6,
+                                        pointBackgroundColor: '#34D399',
+                                    }]
+                                }}
+                                options={trendOpts('%')}
+                            />
+                        </div>
+                    </div>
+                    <div style={{ background: 'rgba(28,28,30,0.4)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 20, padding: 24 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+                            <FileText size={14} style={{ color: '#60A5FA' }} />
+                            <span style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>Steps per Run</span>
+                        </div>
+                        <div style={{ height: 140 }}>
+                            <Bar
+                                data={{
+                                    labels: trendLabels,
+                                    datasets: [{
+                                        label: 'Steps',
+                                        data: stepsTrend,
+                                        backgroundColor: (ctx) => {
+                                            const g = ctx.chart.ctx.createLinearGradient(0, 0, 0, 140);
+                                            g.addColorStop(0, '#3B82F6');
+                                            g.addColorStop(1, 'rgba(59,130,246,0.1)');
+                                            return g;
+                                        },
+                                        borderRadius: 6,
+                                        borderSkipped: false,
+                                        barThickness: Math.max(4, Math.min(20, Math.floor(300 / sorted.length))),
+                                    }]
+                                }}
+                                options={trendOpts()}
+                            />
+                        </div>
+                    </div>
+                </div>
+            )}
 
             <div style={{
                 background: 'rgba(255,255,255,0.02)', borderRadius: 20, padding: '16px 24px',

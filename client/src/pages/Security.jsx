@@ -4,12 +4,15 @@ import {
     GitBranch, RefreshCw, TrendingUp, ShieldAlert, Zap,
     ChevronDown, ChevronUp, ExternalLink
 } from 'lucide-react';
-import { Doughnut } from 'react-chartjs-2';
-import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js';
+import { Doughnut, Line } from 'react-chartjs-2';
+import {
+    Chart as ChartJS, ArcElement, Tooltip, Legend,
+    CategoryScale, LinearScale, PointElement, LineElement, Filler
+} from 'chart.js';
 import { api } from '../services/api';
 import { useAppContext } from '../contexts/AppContext';
 
-ChartJS.register(ArcElement, Tooltip, Legend);
+ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, PointElement, LineElement, Filler);
 
 const PIPELINE_STEPS = [
     { name: 'Source',    sublabel: 'GitHub Event',  color: '#3B82F6' },
@@ -198,6 +201,7 @@ const Security = () => {
     const [activeTab, setActiveTab] = useState('ALL');
     const [insight, setInsight] = useState(null);
     const [insightLoading, setInsightLoading] = useState(false);
+    const [trendData, setTrendData] = useState(null);
 
     const { isScanning, repoScanned, results, security_metrics, risk_score, risk_level, engine, error } = scanState;
 
@@ -238,6 +242,59 @@ const Security = () => {
         low:      vulns.filter(v => v.severity?.toLowerCase() === 'low').length,
     };
     const total = (summary.critical || 0) + (summary.high || 0) + (summary.medium || 0) + (summary.low || 0);
+
+    // Build a severity breakdown trend from vulns that have a timestamp
+    useEffect(() => {
+        if (!vulns.length) { setTrendData(null); return; }
+        // Group by day (last 14 days)
+        const days = 14;
+        const now = new Date();
+        const slots = [];
+        for (let i = days - 1; i >= 0; i--) {
+            const d = new Date(now);
+            d.setDate(d.getDate() - i);
+            slots.push(d.toISOString().split('T')[0]);
+        }
+        const byCritDay = {}, byHighDay = {};
+        for (const v of vulns) {
+            const day = (v.timestamp || v.created_at || '').split('T')[0];
+            if (!day || !slots.includes(day)) continue;
+            const sev = (v.severity || '').toLowerCase();
+            if (sev === 'critical') byCritDay[day] = (byCritDay[day] || 0) + 1;
+            if (sev === 'high')     byHighDay[day] = (byHighDay[day] || 0) + 1;
+        }
+        const labels = slots.map(s => new Date(s + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+        const critData = slots.map(s => byCritDay[s] || 0);
+        const highData = slots.map(s => byHighDay[s] || 0);
+        const hasCrit = critData.some(v => v > 0);
+        const hasHigh = highData.some(v => v > 0);
+        if (!hasCrit && !hasHigh) { setTrendData(null); return; }
+        setTrendData({
+            labels,
+            datasets: [
+                hasCrit && {
+                    label: 'Critical',
+                    data: critData,
+                    borderColor: '#F87171',
+                    backgroundColor: 'rgba(248,113,113,0.1)',
+                    fill: true, tension: 0.4,
+                    pointRadius: critData.map(v => v > 0 ? 4 : 0),
+                    pointHoverRadius: critData.map(v => v > 0 ? 6 : 0),
+                    pointBackgroundColor: '#F87171',
+                },
+                hasHigh && {
+                    label: 'High',
+                    data: highData,
+                    borderColor: '#FB923C',
+                    backgroundColor: 'rgba(251,146,60,0.08)',
+                    fill: true, tension: 0.4,
+                    pointRadius: highData.map(v => v > 0 ? 4 : 0),
+                    pointHoverRadius: highData.map(v => v > 0 ? 6 : 0),
+                    pointBackgroundColor: '#FB923C',
+                },
+            ].filter(Boolean),
+        });
+    }, [results]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const counts = {
         ALL:      vulns.length,
@@ -379,6 +436,40 @@ const Security = () => {
                     </div>
                 </div>
             </div>
+
+            {/* Vulnerability Trend — only shown when we have timestamped data */}
+            {trendData && (
+                <div style={{ background: 'rgba(28,28,30,0.4)', backdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 24, padding: 28, marginBottom: 32 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
+                        <TrendingUp size={16} style={{ color: '#F87171' }} />
+                        <span style={{ fontSize: 14, fontWeight: 700, color: '#fff' }}>Vulnerability Trend</span>
+                        <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)' }}>Last 14 days</span>
+                        <div style={{ marginLeft: 'auto', display: 'flex', gap: 16 }}>
+                            {trendData.datasets.map(ds => (
+                                <div key={ds.label} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'rgba(255,255,255,0.5)' }}>
+                                    <div style={{ width: 10, height: 10, borderRadius: '50%', background: ds.borderColor }} />
+                                    {ds.label}
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                    <div style={{ height: 180 }}>
+                        <Line data={trendData} options={{
+                            responsive: true, maintainAspectRatio: false,
+                            interaction: { mode: 'index', intersect: false },
+                            animation: { duration: 1200, easing: 'easeOutQuart' },
+                            scales: {
+                                x: { grid: { display: false }, ticks: { color: 'rgba(255,255,255,0.3)', font: { size: 10 }, maxTicksLimit: 10, maxRotation: 0 }, border: { display: false } },
+                                y: { grid: { color: 'rgba(255,255,255,0.03)' }, ticks: { color: 'rgba(255,255,255,0.3)', font: { size: 10 }, padding: 8, stepSize: 1 }, border: { display: false }, beginAtZero: true },
+                            },
+                            plugins: {
+                                legend: { display: false },
+                                tooltip: { backgroundColor: 'rgba(28,28,30,0.95)', borderColor: 'rgba(255,255,255,0.1)', borderWidth: 1, titleColor: '#fff', bodyColor: 'rgba(255,255,255,0.7)', padding: 12, cornerRadius: 12 },
+                            },
+                        }} />
+                    </div>
+                </div>
+            )}
 
             {/* Pipeline Steps */}
             <div style={{ background: 'rgba(28,28,30,0.4)', backdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 28, padding: '32px', marginBottom: 32 }}>

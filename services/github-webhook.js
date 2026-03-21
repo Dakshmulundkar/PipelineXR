@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const sqlite3 = require('sqlite3').verbose();
 const pipelineLogger = require('./pipeline-logger');
 const { calculateDeploymentRiskScore, getRiskLevel } = require('./security/securityScanner');
+const datadog = require('./datadog');
 require('dotenv').config();
 
 // Dynamic import for Octokit (ES Module)
@@ -109,6 +110,21 @@ class GitHubWebhookService {
                 await this.fetchWorkflowJobs(run.id, payload.repository, userId);
             }
             await this.updateRunAnalytics(run, userId);
+
+            // Send to Datadog when run completes
+            if (run.status === 'completed') {
+                const duration = run.run_started_at && run.updated_at
+                    ? Math.floor((new Date(run.updated_at) - new Date(run.run_started_at)) / 1000)
+                    : 0;
+                datadog.trackPipelineRun({
+                    repository: payload.repository?.full_name,
+                    conclusion: run.conclusion,
+                    duration_seconds: duration,
+                    head_branch: run.head_branch,
+                    workflow_name: run.name,
+                    run_number: run.run_number,
+                }).catch(() => {});
+            }
         } catch (error) {
             console.error('Workflow run processing error:', error);
         }

@@ -25,8 +25,11 @@ export const api = {
     },
 
     getDoraMetrics: (repo, timeRange = '7d') => {
-        let url = `${API_BASE}/metrics/dora/${encodeURIComponent(repo)}?range=${timeRange}`;
-        return get(url);
+        const repoParam = repo ? encodeURIComponent(repo) : 'all';
+        // timeRange can be a string like '7d' or a number of days
+        const isNumeric = typeof timeRange === 'number' || /^\d+$/.test(timeRange);
+        const query = isNumeric ? `days=${timeRange}` : `range=${timeRange}`;
+        return get(`${API_BASE}/metrics/dora/${repoParam}?${query}`);
     },
 
     // Pipeline
@@ -94,6 +97,14 @@ export const api = {
 
     // DORA sync — pulls runs from GitHub API into local DB
     syncDoraMetrics: (repository, days = 30) => apiInstance.post(`${API_BASE}/metrics/dora/sync`, { repository, days }).then(res => res.data),
+
+    // Datadog
+    getDatadogStatus: () => get(`${API_BASE}/datadog/status`),
+    queryDatadogMetric: (metric, range = '24h', repository = null) => {
+        let url = `${API_BASE}/datadog/metrics/query?metric=${encodeURIComponent(metric)}&range=${range}`;
+        if (repository) url += `&repository=${encodeURIComponent(repository)}`;
+        return get(url);
+    },
 };
 
 export default api;

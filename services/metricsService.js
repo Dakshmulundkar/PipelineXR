@@ -25,7 +25,7 @@ class MetricsService {
         return new Promise((resolve, reject) => {
             const safeDays = Number(days) || 7;
 
-            // 1) Pull raw runs for charts (latest N runs in range)
+            // 1) Pull raw runs for charts — no hard limit, scoped by date range
             const rawSql = `
       SELECT
         run_started_at,
@@ -36,7 +36,6 @@ class MetricsService {
       WHERE datetime(run_started_at) >= datetime('now', '-' || ? || ' days')
       ${repo ? 'AND repository = ?' : ''}
       ORDER BY datetime(run_started_at) DESC
-      LIMIT 60
     `;
 
             const rawParams = repo ? [safeDays, repo] : [safeDays];
@@ -66,12 +65,29 @@ class MetricsService {
 
                     const successRate = totalRuns > 0 ? Math.round((successfulRuns / totalRuns) * 100) : 0;
                     const avgBuildDuration = avgDurationSeconds > 0 ? Math.round((avgDurationSeconds / 60) * 10) / 10 : 0;
-
-                    resolve({
-                        avgBuildDuration,
-                        totalDeployments: successfulRuns,
-                        successRate,
-                        rawRuns: rawRuns || []
+                    // deploymentFrequency = successful runs per day over the range
+                    const deploymentFrequency = safeDays > 0 ? Math.round((successfulRuns / safeDays) * 10) / 10 : 0;
+                    // avgWaitTime = avg queue wait (time from created_at to run_started_at) in hours
+                    const waitSql = `
+                        SELECT AVG((julianday(run_started_at) - julianday(created_at)) * 24) as avg_wait_hours
+                        FROM workflow_runs
+                        WHERE datetime(run_started_at) >= datetime('now', '-' || ? || ' days')
+                        AND run_started_at IS NOT NULL AND created_at IS NOT NULL
+                        ${repo ? 'AND repository = ?' : ''}
+                    `;
+                    const waitParams = repo ? [safeDays, repo] : [safeDays];
+                    this.db.get(waitSql, waitParams, (waitErr, waitRow) => {
+                        const avgWaitTime = waitRow?.avg_wait_hours > 0
+                            ? Math.round(waitRow.avg_wait_hours * 100) / 100
+                            : 0;
+                        resolve({
+                            avgBuildDuration,
+                            totalDeployments: successfulRuns,
+                            deploymentFrequency,
+                            avgWaitTime,
+                            successRate,
+                            rawRuns: rawRuns || []
+                        });
                     });
                 });
             });
@@ -102,7 +118,7 @@ async syncWorkflowRunsFromGitHub(repository, days = 7, userId = 1) {
     try {
         // Your github.js exports getWorkflowRunsForMetrics — use it
         const [owner, repo] = repository.split('/');
-workflowRuns = await githubService.getWorkflowRunsForMetrics(owner, repo);
+        workflowRuns = await githubService.getWorkflowRunsForMetrics(owner, repo, safeDays);
     } catch (e) {
         // Fallback: try triggerWorkflowRuns-like helper naming (just in case)
         throw new Error(`Failed to fetch workflow runs from GitHub: ${e.message}`);
@@ -207,11 +223,18 @@ if (runsArray[0]) console.log('[DORA SYNC] first run id:', runsArray[0].id, 'nam
         });
     }
 
-    return {
-        repository,
-        upserted: runsArray.length
-    };
+    const result = { repository, upserted: runsArray.length };
+
+    // Fire DORA metrics to Datadog after sync (non-blocking)
+    try {
+        const doraData = await this.getDoraMetrics(repository, 7);
+        const datadog = require('./datadog');
+        datadog.trackDoraMetrics(repository, doraData).catch(() => {});
+    } catch (e) { /* non-fatal */ }
+
+    return result;
 }
+
     getTrend(metricName, days = 7, repo = null) {
         return new Promise((resolve, reject) => {
             let sql = '';

@@ -612,6 +612,7 @@ app.get('/api/metrics/trend/:name', async (req, res) => {
         let days = 7;
         if (timeRange === '24h') days = 1;
         if (timeRange === '30d') days = 30;
+        if (timeRange === '90d') days = 90;
 
         const rows = await metricsService.getTrend(name, days, repository, userId);
         res.json(rows);
@@ -626,20 +627,20 @@ app.get('/api/metrics/trend/:name', async (req, res) => {
 app.get('/api/metrics/dora/:repo', async (req, res) => {
   try {
     const userId = req.session.user?.dbId || 1;
-    const repo = decodeURIComponent(req.params.repo || '').trim();
+    const repoParam = decodeURIComponent(req.params.repo || '').trim();
+    const repo = (repoParam === 'all' || repoParam === 'null' || !repoParam) ? null : repoParam;
     const range = (req.query.range || '7d').toString();
 
-    if (!repo) return res.status(400).json({ error: 'Missing repo' });
+    // Support explicit ?days= override for trend comparison fetches
+    let days = parseInt(req.query.days, 10) || 0;
+    if (!days) {
+        if (range === '24h') days = 1;
+        else if (range === '30d') days = 30;
+        else if (range === '90d') days = 90;
+        else days = 7;
+    }
 
-    // map UI ranges -> days
-    let days = 7;
-    if (range === '24h') days = 1;
-    if (range === '30d') days = 30;
-    if (range === '90d') days = 90;
-
-    // NOTE: Step 3 will fix/extend metricsService.getDoraMetrics to accept days.
     const data = await metricsService.getDoraMetrics(repo, days);
-
     return res.json(data);
   } catch (error) {
     console.error('DORA metrics error:', error);
@@ -1015,6 +1016,35 @@ app.get('/api/deployments/stats', async (req, res) => {
         });
     } catch {
         res.json({ deployments: [], total: 0 });
+    }
+});
+
+// --------------------------------------------------------------------------
+// Datadog Proxy Routes
+// --------------------------------------------------------------------------
+const datadogService = require('../services/datadog');
+
+// GET /api/datadog/status — check if Datadog is configured
+app.get('/api/datadog/status', (req, res) => {
+    res.json({ enabled: datadogService.enabled, site: process.env.DATADOG_SITE || null });
+});
+
+// GET /api/datadog/metrics/query?metric=build.success&range=24h&repository=owner/repo
+// Serves from local SQLite — no Datadog APP_KEY scope needed
+app.get('/api/datadog/metrics/query', async (req, res) => {
+    try {
+        const { metric, range, repository } = req.query;
+        if (!metric) return res.status(400).json({ error: 'Missing metric parameter' });
+
+        const now = Math.floor(Date.now() / 1000);
+        const rangeMap = { '1h': 3600, '6h': 21600, '24h': 86400, '7d': 604800 };
+        const seconds = rangeMap[range] || 86400;
+        const from = now - seconds;
+
+        const points = await datadogService.queryLocalMetric(metric, from, now, repository || null);
+        res.json({ metric, from, to: now, points });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
     }
 });
 

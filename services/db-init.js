@@ -100,6 +100,43 @@ function initializeDatabase(dbPath) {
                 });
             });
 
+            // Migrate workflow_runs unique constraint from run_id → (user_id, run_id)
+            // We do this by recreating the table if the old single-column unique exists
+            await new Promise(res => {
+                db.all(`PRAGMA index_list(workflow_runs)`, (err, indexes) => {
+                    if (err || !indexes) return res();
+                    // Check if there's a unique index on just run_id (not the composite one)
+                    const hasOldUnique = indexes.some(idx => idx.unique && idx.name !== 'idx_workflow_runs_user_run' && idx.name !== 'sqlite_autoindex_workflow_runs_1');
+                    if (!hasOldUnique) return res();
+                    // Recreate table with correct constraint
+                    db.serialize(() => {
+                        db.run(`ALTER TABLE workflow_runs RENAME TO workflow_runs_old`, (e) => {
+                            if (e) return res();
+                            db.run(`CREATE TABLE workflow_runs (
+                                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                user_id INTEGER,
+                                run_id INTEGER NOT NULL,
+                                workflow_id INTEGER, workflow_name TEXT, head_branch TEXT, head_sha TEXT,
+                                status TEXT, conclusion TEXT, event TEXT, run_number INTEGER, run_attempt INTEGER,
+                                run_started_at DATETIME, created_at DATETIME, updated_at DATETIME,
+                                repository TEXT, owner TEXT, html_url TEXT,
+                                head_commit_message TEXT, head_commit_author TEXT, triggering_actor TEXT,
+                                duration_seconds INTEGER, jobs_count INTEGER DEFAULT 0,
+                                risk_score REAL DEFAULT 0, risk_level TEXT DEFAULT 'Healthy',
+                                critical_vulns INTEGER DEFAULT 0, high_vulns INTEGER DEFAULT 0,
+                                medium_vulns INTEGER DEFAULT 0, low_vulns INTEGER DEFAULT 0, unknown_vulns INTEGER DEFAULT 0,
+                                UNIQUE(user_id, run_id)
+                            )`, (e2) => {
+                                if (e2) return res();
+                                db.run(`INSERT OR IGNORE INTO workflow_runs SELECT * FROM workflow_runs_old`, () => {
+                                    db.run(`DROP TABLE workflow_runs_old`, () => res());
+                                });
+                            });
+                        });
+                    });
+                });
+            });
+
             db.exec(schema, (err) => {
                 if (err) {
                     console.error('❌ Error applying schema:', err.message);

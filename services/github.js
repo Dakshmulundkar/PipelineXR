@@ -329,16 +329,31 @@ const triggerWorkflow = async (owner, repo, workflow_id, ref = 'main') => {
     }
 };
 
-const getWorkflowRunsForMetrics = async (owner, repo) => {
+const getWorkflowRunsForMetrics = async (owner, repo, days = 7) => {
     if (!octokit) await init();
     try {
-        const response = await octokit.request('GET /repos/{owner}/{repo}/actions/runs', {
-            owner,
-            repo,
-            per_page: 100,
-            status: 'completed'
-        });
-        return response.data.workflow_runs;
+        // Build a `created` filter so GitHub only returns runs within the requested window
+        const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+        // GitHub supports up to 100 per page; paginate to cover large ranges
+        const allRuns = [];
+        let page = 1;
+        while (true) {
+            const response = await octokit.request('GET /repos/{owner}/{repo}/actions/runs', {
+                owner,
+                repo,
+                per_page: 100,
+                page,
+                created: `>=${since}`,
+            });
+            const runs = response.data.workflow_runs || [];
+            allRuns.push(...runs);
+            // Stop if we got fewer than a full page (no more pages)
+            if (runs.length < 100) break;
+            page++;
+            // Safety cap: don't fetch more than 10 pages (1000 runs)
+            if (page > 10) break;
+        }
+        return allRuns;
     } catch (error) {
         console.error("GitHub Actions Metrics Fetch Error", error.message);
         return [];

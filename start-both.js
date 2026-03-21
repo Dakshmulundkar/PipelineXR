@@ -38,7 +38,21 @@ async function main() {
         env: process.env
     });
 
-    await new Promise(r => setTimeout(r, 2000));
+    // Wait until the backend is actually accepting connections before starting the client
+    console.log('⏳ Waiting for backend to be ready...');
+    await new Promise((resolve) => {
+        const net = require('net');
+        const check = () => {
+            const sock = new net.Socket();
+            sock.setTimeout(500);
+            sock.on('connect', () => { sock.destroy(); resolve(); });
+            sock.on('error', () => { sock.destroy(); setTimeout(check, 400); });
+            sock.on('timeout', () => { sock.destroy(); setTimeout(check, 400); });
+            sock.connect(3001, '127.0.0.1');
+        };
+        setTimeout(check, 1000); // give node a moment to start
+    });
+    console.log('✅ Backend ready!');
 
     console.log('\n🎨 Starting React client on port 5174...');
     const clientProcess = spawn('npm', ['run', 'dev'], {
