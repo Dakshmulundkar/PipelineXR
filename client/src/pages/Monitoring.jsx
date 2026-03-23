@@ -124,7 +124,7 @@ function StatPill({ label, value, color = '#60A5FA' }) {
 }
 
 export default function Monitoring() {
-    const { user, isAdmin } = useAppContext();
+    const { isAdmin } = useAppContext();
 
     const [sites, setSites] = useState([]);
     const [selected, setSelected] = useState(null);

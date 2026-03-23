@@ -73,7 +73,7 @@ export const AppProvider = ({ children, isAuthenticated }) => {
                 }
             }
         }).catch(() => { setSelectedRepo(''); });
-    }, [isAuthenticated]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [isAuthenticated]);
 
     // Start a background scan — safe to call from any page
     const startScan = useCallback(async (repo) => {
