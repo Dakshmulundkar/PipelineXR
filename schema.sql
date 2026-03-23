@@ -208,3 +208,68 @@ CREATE TABLE IF NOT EXISTS scan_results (
     started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     completed_at DATETIME
 );
+
+CREATE TABLE IF NOT EXISTS page_views (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    path TEXT NOT NULL,
+    ip_hash TEXT,
+    session_id TEXT,
+    user_agent TEXT,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_page_views_timestamp ON page_views(timestamp);
+CREATE INDEX IF NOT EXISTS idx_page_views_path ON page_views(path);
+
+-- ── Uptime Monitoring ─────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS monitored_sites (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    url TEXT NOT NULL,
+    alert_email TEXT,
+    is_up INTEGER DEFAULT 1,
+    active INTEGER DEFAULT 1,
+    consecutive_failures INTEGER DEFAULT 0,
+    added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    last_checked DATETIME
+);
+
+CREATE TABLE IF NOT EXISTS uptime_checks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    site_id INTEGER NOT NULL,
+    is_up INTEGER NOT NULL,
+    status_code INTEGER,
+    response_time_ms INTEGER,
+    error TEXT,
+    checked_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (site_id) REFERENCES monitored_sites(id)
+);
+
+CREATE TABLE IF NOT EXISTS uptime_incidents (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    site_id INTEGER NOT NULL,
+    started_at DATETIME NOT NULL,
+    resolved_at DATETIME,
+    type TEXT DEFAULT 'outage',
+    FOREIGN KEY (site_id) REFERENCES monitored_sites(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_uptime_checks_site ON uptime_checks(site_id, checked_at);
+CREATE INDEX IF NOT EXISTS idx_monitored_sites_user ON monitored_sites(user_id);
+
+-- ── Visitor Analytics (Type B — external site beacon) ─────────────────────────
+CREATE TABLE IF NOT EXISTS visitor_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    site_id INTEGER NOT NULL,
+    path TEXT,
+    referrer TEXT,
+    ip_hash TEXT,
+    country TEXT,
+    ua TEXT,
+    session_id TEXT,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (site_id) REFERENCES monitored_sites(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_visitor_events_site ON visitor_events(site_id, timestamp);

@@ -36,8 +36,7 @@ class GitHubWebhookService {
     async getUserIdByOwner(ownerGithubId) {
         return new Promise((resolve) => {
             this.db.get('SELECT id FROM users WHERE github_id = ?', [ownerGithubId.toString()], (err, row) => {
-                if (err || !row) resolve(1); // Fallback to 1 for demo if not found
-                else resolve(row.id);
+                resolve(row?.id || null); // null if user not found — caller must handle
             });
         });
     }
@@ -59,6 +58,10 @@ class GitHubWebhookService {
 
         const ownerId = payload.repository?.owner?.id;
         const userId = await this.getUserIdByOwner(ownerId);
+        if (!userId) {
+            console.warn(`[WEBHOOK] Unknown GitHub owner ID ${ownerId} — skipping data storage`);
+            return { status: 'skipped', reason: 'unknown_user' };
+        }
 
         // Store webhook event
         await this.storeWebhookEvent(eventType, deliveryId, payload, userId);

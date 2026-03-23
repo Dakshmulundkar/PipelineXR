@@ -164,13 +164,17 @@ async function trackDoraMetrics(repository, data) {
  * Supported metric keys: build.success, build.failure, build.duration_seconds,
  *   security.critical, security.high, dora.success_rate
  */
-async function queryLocalMetric(metricKey, from, to, repository = null) {
+async function queryLocalMetric(metricKey, from, to, repository = null, userId = null) {
     const db = require('./database');
     const fromDate = new Date(from * 1000).toISOString();
     const toDate   = new Date(to   * 1000).toISOString();
 
+    // userId is required — never return cross-user data
+    if (!userId) return [];
+
     return new Promise((resolve) => {
         let sql, params;
+        const userFilter = 'AND user_id = ?';
 
         if (metricKey === 'build.success' || metricKey === 'build.failure') {
             const conclusion = metricKey === 'build.success' ? 'success' : 'failure';
@@ -179,8 +183,11 @@ async function queryLocalMetric(metricKey, from, to, repository = null) {
                    WHERE run_started_at >= ? AND run_started_at <= ?
                    AND conclusion = ?
                    ${repository ? 'AND repository = ?' : ''}
+                   ${userFilter}
                    GROUP BY day ORDER BY day`;
-            params = repository ? [fromDate, toDate, conclusion, repository] : [fromDate, toDate, conclusion];
+            params = repository
+                ? [fromDate, toDate, conclusion, repository, userId]
+                : [fromDate, toDate, conclusion, userId];
 
         } else if (metricKey === 'build.duration_seconds') {
             sql = `SELECT DATE(run_started_at) as day, ROUND(AVG(duration_seconds), 1) as value
@@ -188,8 +195,9 @@ async function queryLocalMetric(metricKey, from, to, repository = null) {
                    WHERE run_started_at >= ? AND run_started_at <= ?
                    AND duration_seconds IS NOT NULL
                    ${repository ? 'AND repository = ?' : ''}
+                   ${userFilter}
                    GROUP BY day ORDER BY day`;
-            params = repository ? [fromDate, toDate, repository] : [fromDate, toDate];
+            params = repository ? [fromDate, toDate, repository, userId] : [fromDate, toDate, userId];
 
         } else if (metricKey === 'security.critical' || metricKey === 'security.high') {
             const sev = metricKey === 'security.critical' ? 'critical' : 'high';
@@ -198,8 +206,11 @@ async function queryLocalMetric(metricKey, from, to, repository = null) {
                    WHERE timestamp >= ? AND timestamp <= ?
                    AND severity = ? AND status = 'open'
                    ${repository ? 'AND repository = ?' : ''}
+                   ${userFilter}
                    GROUP BY day ORDER BY day`;
-            params = repository ? [fromDate, toDate, sev, repository] : [fromDate, toDate, sev];
+            params = repository
+                ? [fromDate, toDate, sev, repository, userId]
+                : [fromDate, toDate, sev, userId];
 
         } else if (metricKey === 'dora.success_rate') {
             sql = `SELECT DATE(run_started_at) as day,
@@ -207,8 +218,9 @@ async function queryLocalMetric(metricKey, from, to, repository = null) {
                    FROM workflow_runs
                    WHERE run_started_at >= ? AND run_started_at <= ?
                    ${repository ? 'AND repository = ?' : ''}
+                   ${userFilter}
                    GROUP BY day ORDER BY day`;
-            params = repository ? [fromDate, toDate, repository] : [fromDate, toDate];
+            params = repository ? [fromDate, toDate, repository, userId] : [fromDate, toDate, userId];
 
         } else {
             return resolve([]);

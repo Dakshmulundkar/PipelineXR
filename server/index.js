@@ -21,6 +21,31 @@ const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET;
 const SESSION_SECRET = process.env.SESSION_SECRET || 'your-secret-key';
 const FRONTEND_URL = process.env.FRONTEND_URL || `http://localhost:${PORT}`;
 
+// ── Resolve admin login from GITHUB_TOKEN at startup (no hardcoding) ──────────
+// The owner of GITHUB_TOKEN in .env is the admin. We fetch their login once.
+let resolvedAdminLogin = null;
+async function resolveAdminLogin() {
+    const token = process.env.GITHUB_TOKEN;
+    if (!token) {
+        console.warn('[ADMIN] GITHUB_TOKEN not set — no admin user will be granted elevated access');
+        return;
+    }
+    try {
+        const res = await fetch('https://api.github.com/user', {
+            headers: { Authorization: `Bearer ${token}`, 'User-Agent': 'PipelineXR' }
+        });
+        const data = await res.json();
+        if (data.login) {
+            resolvedAdminLogin = data.login;
+            console.log(`[ADMIN] Admin login resolved from GITHUB_TOKEN: ${resolvedAdminLogin}`);
+        } else {
+            console.warn('[ADMIN] Could not resolve login from GITHUB_TOKEN:', data.message);
+        }
+    } catch (e) {
+        console.warn('[ADMIN] Failed to resolve admin login:', e.message);
+    }
+}
+
 // Supabase logic removed - using local SQLite instead
 
 // Initialize Apps
@@ -128,6 +153,7 @@ const metricsService = require('../services/metricsService');
 const securityService = require('../services/securityService');
 const securityScanner = require('../services/security/scanner-processor');
 const securityScannerFull = require('../services/security/securityScanner');
+const monitor = require('../services/monitor');
 
 
 // Initialize Services
@@ -267,8 +293,9 @@ app.get('/auth/github/callback', async (req, res) => {
 
         // 4. Set Session
         req.session.user = userInfo;
+        req.session.user.isAdmin = (resolvedAdminLogin && userInfo.login === resolvedAdminLogin);
         req.session.authenticated = true;
-        console.log('Session established for user:', userInfo.login);
+        console.log(`Session established for user: ${userInfo.login} (admin: ${req.session.user.isAdmin})`);
 
 
         // 5. Auto-fetch Repos (Cache them or just log for now)
@@ -298,10 +325,11 @@ app.get('/auth/user', (req, res) => {
     if (req.session.user) {
         res.json({
             user: req.session.user,
-            authenticated: true
+            authenticated: true,
+            isAdmin: req.session.user.isAdmin === true,
         });
     } else {
-        res.json({ authenticated: false });
+        res.json({ authenticated: false, isAdmin: false });
     }
 });
 
@@ -473,6 +501,9 @@ app.post('/api/logs', (req, res) => {
 // API Routes (GitHub & Analytics)
 // --------------------------------------------------------------------------
 
+// Helper — extract userId from session, return null if not authenticated
+const getUserId = (req) => req.session.user?.dbId || null;
+
 // Re-initialize GitHub service from session token for every API call if needed
 const ensureGithub = async (req) => {
     const token = req.session.githubToken || process.env.GITHUB_TOKEN;
@@ -524,7 +555,7 @@ app.get('/api/github/workflows', async (req, res) => {
 
 app.get('/api/reports/tests', async (req, res) => {
     try {
-        const userId = req.session.user?.dbId || 1;
+        const userId = getUserId(req); if (!userId) return res.status(401).json({ error: 'Authentication required' });
         const { repository } = req.query;
         const reports = await analytics.getTestReports(userId, repository || null);
         const enriched = reports.map(r => ({
@@ -539,7 +570,7 @@ app.get('/api/reports/tests', async (req, res) => {
 
 app.get('/api/reports/summary', async (req, res) => {
     try {
-        const userId = req.session.user?.dbId || 1;
+        const userId = getUserId(req); if (!userId) return res.status(401).json({ error: 'Authentication required' });
         const quality = await analytics.getQualityMetrics(userId);
         const reports = await analytics.getTestReports(userId);
         res.json({
@@ -558,7 +589,7 @@ app.get('/api/reports/summary', async (req, res) => {
 // Sync jobs+steps from GitHub API into local DB (no webhooks needed)
 app.post('/api/reports/sync', expensiveLimiter, async (req, res) => {
     try {
-        const userId = req.session.user?.dbId || 1;
+        const userId = getUserId(req); if (!userId) return res.status(401).json({ error: 'Authentication required' });
         const repository = (req.body?.repository || '').toString().trim();
         if (!repository || !repository.includes('/')) {
             return res.status(400).json({ error: 'Missing or invalid repository (expected owner/repo)' });
@@ -575,7 +606,7 @@ app.post('/api/reports/sync', expensiveLimiter, async (req, res) => {
 // PDF download using puppeteer
 app.get('/api/reports/download', expensiveLimiter, async (req, res) => {
     try {
-        const userId = req.session.user?.dbId || 1;
+        const userId = getUserId(req); if (!userId) return res.status(401).json({ error: 'Authentication required' });
         const { repository } = req.query;
         const rawReports = await analytics.getTestReports(userId, repository || null);
 
@@ -653,7 +684,7 @@ app.get('/api/reports/download', expensiveLimiter, async (req, res) => {
 
 app.get('/api/metrics/trend/:name', async (req, res) => {
     try {
-        const userId = req.session.user?.dbId || 1;
+        const userId = getUserId(req); if (!userId) return res.status(401).json({ error: 'Authentication required' });
         const { name } = req.params;
         const { timeRange, repository } = req.query;
         let days = 7;
@@ -673,7 +704,7 @@ app.get('/api/metrics/trend/:name', async (req, res) => {
 // --------------------------------------------------------------------------
 app.get('/api/metrics/dora/:repo', async (req, res) => {
   try {
-    const userId = req.session.user?.dbId || 1;
+    const userId = getUserId(req); if (!userId) return res.status(401).json({ error: 'Authentication required' });
     const repoParam = decodeURIComponent(req.params.repo || '').trim();
     const repo = (repoParam === 'all' || repoParam === 'null' || !repoParam) ? null : repoParam;
     const range = (req.query.range || '7d').toString();
@@ -687,7 +718,7 @@ app.get('/api/metrics/dora/:repo', async (req, res) => {
         else days = 7;
     }
 
-    const data = await metricsService.getDoraMetrics(repo, days);
+    const data = await metricsService.getDoraMetrics(repo, days, userId);
     return res.json(data);
   } catch (error) {
     console.error('DORA metrics error:', error);
@@ -700,7 +731,7 @@ app.get('/api/metrics/dora/:repo', async (req, res) => {
 
 app.get('/api/security/summary', async (req, res) => {
     try {
-        const userId = req.session.user?.dbId || 1;
+        const userId = getUserId(req); if (!userId) return res.status(401).json({ error: 'Authentication required' });
         const { repository } = req.query;
         const summary = await securityService.getSummary(repository, userId);
         res.json(summary);
@@ -711,7 +742,7 @@ app.get('/api/security/summary', async (req, res) => {
 
 app.get('/api/security/vulnerabilities/:owner/:repo', async (req, res) => {
     try {
-        const userId = req.session.user?.dbId || 1;
+        const userId = getUserId(req); if (!userId) return res.status(401).json({ error: 'Authentication required' });
         const repoFull = `${req.params.owner}/${req.params.repo}`.trim();
         const vulnerabilities = await securityService.getVulnerabilities(repoFull, userId);
         res.json(vulnerabilities);
@@ -722,7 +753,7 @@ app.get('/api/security/vulnerabilities/:owner/:repo', async (req, res) => {
 
 app.post('/api/security/scan/trivy', expensiveLimiter, async (req, res) => {
     try {
-        const userId = req.session.user?.dbId || 1;
+        const userId = getUserId(req); if (!userId) return res.status(401).json({ error: 'Authentication required' });
         const { type, target, repository, options = {} } = req.body;
         if (!type || !target || !repository) return res.status(400).json({ error: 'Missing parameters' });
 
@@ -768,7 +799,7 @@ app.post('/api/security/scan/trivy', expensiveLimiter, async (req, res) => {
 // POST /api/security/scan/repo — full clone → Docker/TrivyLite → score pipeline
 app.post('/api/security/scan/repo', expensiveLimiter, async (req, res) => {
     try {
-        const userId = req.session.user?.dbId || 1;
+        const userId = getUserId(req); if (!userId) return res.status(401).json({ error: 'Authentication required' });
         const { owner, repo, ref, options = {} } = req.body;
         if (!owner || !repo) return res.status(400).json({ error: 'Missing owner or repo' });
 
@@ -799,7 +830,7 @@ app.post('/api/security/scan/repo', expensiveLimiter, async (req, res) => {
 
 app.get('/api/security/insights', async (req, res) => {
     try {
-        const userId = req.session.user?.dbId || 1;
+        const userId = getUserId(req); if (!userId) return res.status(401).json({ error: 'Authentication required' });
         const { repository } = req.query;
         const vulnerabilities = await securityService.getVulnerabilities(repository, userId);
         
@@ -833,7 +864,7 @@ app.get('/api/security/sbom/:owner/:repo', async (req, res) => {
 // GET /api/security/dependabot/:owner/:repo — fetch Dependabot alerts and persist them
 app.get('/api/security/dependabot/:owner/:repo', async (req, res) => {
     try {
-        const userId = req.session.user?.dbId || 1;
+        const userId = getUserId(req); if (!userId) return res.status(401).json({ error: 'Authentication required' });
         const { owner, repo } = req.params;
         const repoFull = `${owner}/${repo}`;
 
@@ -870,7 +901,7 @@ app.get('/api/security/dependabot/:owner/:repo', async (req, res) => {
 });
 app.get('/api/security/snyk/:owner/:repo', async (req, res) => {
     try {
-        const userId = req.session.user?.dbId || 1;
+        const userId = getUserId(req); if (!userId) return res.status(401).json({ error: 'Authentication required' });
         const { owner, repo } = req.params;
         if (!process.env.SNYK_TOKEN || !process.env.SNYK_ORG_ID) {
             return res.json([]);
@@ -885,7 +916,7 @@ app.get('/api/security/snyk/:owner/:repo', async (req, res) => {
 // GET /api/security/licenses/:owner/:repo — license findings
 app.get('/api/security/licenses/:owner/:repo', async (req, res) => {
     try {
-        const userId = req.session.user?.dbId || 1;
+        const userId = getUserId(req); if (!userId) return res.status(401).json({ error: 'Authentication required' });
         const repoFull = `${req.params.owner}/${req.params.repo}`.trim();
         const findings = await securityService.getLicenseFindings(repoFull, userId);
         res.json(findings);
@@ -897,7 +928,7 @@ app.get('/api/security/licenses/:owner/:repo', async (req, res) => {
 // GET /api/security/scan/history — scan history
 app.get('/api/security/scan/history', async (req, res) => {
     try {
-        const userId = req.session.user?.dbId || 1;
+        const userId = getUserId(req); if (!userId) return res.status(401).json({ error: 'Authentication required' });
         const { repository } = req.query;
         const history = await securityService.getScanHistory(repository || null, userId);
         res.json(history);
@@ -909,7 +940,7 @@ app.get('/api/security/scan/history', async (req, res) => {
 // POST /api/security/scan/full — run all scanners
 app.post('/api/security/scan/full', expensiveLimiter, async (req, res) => {
     try {
-        const userId = req.session.user?.dbId || 1;
+        const userId = getUserId(req); if (!userId) return res.status(401).json({ error: 'Authentication required' });
         const { repository } = req.body;
         if (!repository) return res.status(400).json({ error: 'Missing repository' });
 
@@ -993,7 +1024,7 @@ app.post('/api/security/scan/full', expensiveLimiter, async (req, res) => {
 
 app.get('/api/pipeline/runs', async (req, res) => {
     try {
-        const userId = req.session.user?.dbId || 1;
+        const userId = getUserId(req); if (!userId) return res.status(401).json({ error: 'Authentication required' });
         const { repository, limit } = req.query;
         const runs = await webhookService.getRecentWorkflowRuns(limit || 20, repository, userId);
         res.json(runs);
@@ -1005,7 +1036,7 @@ app.get('/api/pipeline/runs', async (req, res) => {
 // Sync pipeline runs + jobs from GitHub into local DB
 app.post('/api/pipeline/sync', async (req, res) => {
     try {
-        const userId = req.session.user?.dbId || 1;
+        const userId = getUserId(req); if (!userId) return res.status(401).json({ error: 'Authentication required' });
         const repository = (req.body?.repository || '').toString().trim();
         if (!repository || !repository.includes('/')) {
             return res.status(400).json({ error: 'Missing or invalid repository (expected owner/repo)' });
@@ -1080,6 +1111,7 @@ app.get('/api/datadog/status', (req, res) => {
 // Serves from local SQLite — no Datadog APP_KEY scope needed
 app.get('/api/datadog/metrics/query', async (req, res) => {
     try {
+        const userId = getUserId(req); if (!userId) return res.status(401).json({ error: 'Authentication required' });
         const { metric, range, repository } = req.query;
         if (!metric) return res.status(400).json({ error: 'Missing metric parameter' });
 
@@ -1088,7 +1120,7 @@ app.get('/api/datadog/metrics/query', async (req, res) => {
         const seconds = rangeMap[range] || 86400;
         const from = now - seconds;
 
-        const points = await datadogService.queryLocalMetric(metric, from, now, repository || null);
+        const points = await datadogService.queryLocalMetric(metric, from, now, repository || null, userId);
         res.json({ metric, from, to: now, points });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -1100,7 +1132,7 @@ app.get('/api/datadog/metrics/query', async (req, res) => {
 // --------------------------------------------------------------------------
 app.post('/api/metrics/dora/sync', expensiveLimiter, async (req, res) => {
   try {
-    const userId = req.session.user?.dbId || 1;
+    const userId = getUserId(req); if (!userId) return res.status(401).json({ error: 'Authentication required' });
     const repository = (req.body?.repository || req.query?.repository || '').toString().trim();
     const days = Number(req.body?.days || req.query?.days || 7) || 7;
 
@@ -1133,6 +1165,248 @@ app.get('/api/pipelines/stats', async (req, res) => {
 });
 
 // ... (Other specific routes can rely on Services as before)
+
+// --------------------------------------------------------------------------
+// Analytics / Visitor Tracking
+// --------------------------------------------------------------------------
+
+// Middleware: track every page navigation (frontend calls this on route change)
+app.post('/api/analytics/pageview', (req, res) => {
+    try {
+        const { path: pagePath, sessionId } = req.body;
+        const userId = req.session.user?.dbId || null;
+        const crypto = require('crypto');
+        const ip = req.ip || req.connection?.remoteAddress || 'unknown';
+        const ipHash = crypto.createHash('sha256').update(ip).digest('hex').slice(0, 16);
+        const ua = req.headers['user-agent'] || '';
+        const db = require('../services/database');
+        db.run(
+            `INSERT INTO page_views (user_id, path, ip_hash, session_id, user_agent) VALUES (?, ?, ?, ?, ?)`,
+            [userId, pagePath || '/', ipHash, sessionId || null, ua],
+            () => {}
+        );
+        res.json({ ok: true });
+    } catch { res.json({ ok: true }); }
+});
+
+// --------------------------------------------------------------------------
+// Uptime Monitoring Routes
+// --------------------------------------------------------------------------
+
+// GET /api/monitor/sites — list user's monitored sites
+app.get('/api/monitor/sites', async (req, res) => {
+    try {
+        const userId = getUserId(req); if (!userId) return res.status(401).json({ error: 'Authentication required' });
+        const isAdmin = req.session.user?.isAdmin === true;
+        const sites = await monitor.getSites(userId, isAdmin);
+        res.json(sites);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/monitor/sites — add a site to monitor
+app.post('/api/monitor/sites', async (req, res) => {
+    try {
+        const userId = getUserId(req); if (!userId) return res.status(401).json({ error: 'Authentication required' });
+        const isAdmin = req.session.user?.isAdmin === true;
+        const { url, alert_email } = req.body;
+        if (!url) return res.status(400).json({ error: 'url is required' });
+        const site = await monitor.addSite(userId, url, alert_email, isAdmin);
+        res.json(site);
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// DELETE /api/monitor/sites/:id — remove a site
+app.delete('/api/monitor/sites/:id', async (req, res) => {
+    try {
+        const userId = getUserId(req); if (!userId) return res.status(401).json({ error: 'Authentication required' });
+        const isAdmin = req.session.user?.isAdmin === true;
+        await monitor.removeSite(userId, parseInt(req.params.id), isAdmin);
+        res.json({ ok: true });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/monitor/sites/:id/checks?hours=24 — raw check history
+app.get('/api/monitor/sites/:id/checks', async (req, res) => {
+    try {
+        const hours = parseInt(req.query.hours) || 24;
+        const checks = await monitor.getChecks(parseInt(req.params.id), hours);
+        res.json(checks);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/monitor/sites/:id/stats?hours=24 — aggregated stats
+app.get('/api/monitor/sites/:id/stats', async (req, res) => {
+    try {
+        const hours = parseInt(req.query.hours) || 24;
+        const stats = await monitor.getStats(parseInt(req.params.id), hours);
+        res.json(stats);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/monitor/sites/:id/incidents — incident history
+app.get('/api/monitor/sites/:id/incidents', async (req, res) => {
+    try {
+        const incidents = await monitor.getIncidents(parseInt(req.params.id));
+        res.json(incidents);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// --------------------------------------------------------------------------
+// Visitor Analytics (Type B — external site beacon)
+// --------------------------------------------------------------------------
+
+// Middleware: admin-only guard — checks isAdmin flag set at login time from GITHUB_TOKEN
+const requireAdmin = (req, res, next) => {
+    if (!req.session.user?.isAdmin) {
+        return res.status(403).json({ error: 'Admin access required' });
+    }
+    next();
+};
+
+// GET /api/visitor/script/:siteId — returns the embeddable JS snippet (admin only)
+app.get('/api/visitor/script/:siteId', requireAdmin, async (req, res) => {
+    const siteId = parseInt(req.params.siteId);
+    const db = require('../services/database');
+    db.get(`SELECT id, url FROM monitored_sites WHERE id=? AND active=1`, [siteId], (err, site) => {
+        if (err || !site) return res.status(404).json({ error: 'Site not found' });
+        const beaconUrl = `${req.protocol}://${req.get('host')}/api/visitor/beacon/${siteId}`;
+        const script = `<!-- PipelineXR Visitor Analytics -->
+<script>
+(function(){
+  var sid = sessionStorage.getItem('_pxr_s');
+  if(!sid){ sid = Math.random().toString(36).slice(2)+Date.now().toString(36); sessionStorage.setItem('_pxr_s',sid); }
+  var d = { path: location.pathname, referrer: document.referrer, session_id: sid };
+  fetch('${beaconUrl}', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(d), keepalive: true }).catch(function(){});
+  window.addEventListener('popstate', function(){ d.path = location.pathname; fetch('${beaconUrl}', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(d), keepalive: true }).catch(function(){}); });
+})();
+</script>`;
+        res.json({ siteId, url: site.url, script });
+    });
+});
+
+// POST /api/visitor/beacon/:siteId — receives beacon from external site (public, no auth)
+app.post('/api/visitor/beacon/:siteId', (req, res) => {
+    try {
+        const siteId = parseInt(req.params.siteId);
+        const { path: pagePath, referrer, session_id } = req.body || {};
+        const crypto = require('crypto');
+        const ip = req.ip || req.connection?.remoteAddress || 'unknown';
+        const ipHash = crypto.createHash('sha256').update(ip).digest('hex').slice(0, 16);
+        const ua = req.headers['user-agent'] || '';
+        const db = require('../services/database');
+        db.run(
+            `INSERT INTO visitor_events (site_id, path, referrer, ip_hash, ua, session_id) VALUES (?,?,?,?,?,?)`,
+            [siteId, pagePath || '/', referrer || null, ipHash, ua, session_id || null],
+            () => {}
+        );
+        // Allow cross-origin beacons
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.json({ ok: true });
+    } catch { res.json({ ok: true }); }
+});
+
+// Handle CORS preflight for beacon
+app.options('/api/visitor/beacon/:siteId', (req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'POST');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.sendStatus(204);
+});
+
+// GET /api/visitor/stats/:siteId?hours=24 — visitor stats for a site (admin only)
+app.get('/api/visitor/stats/:siteId', requireAdmin, (req, res) => {
+    const siteId = parseInt(req.params.siteId);
+    const hours = parseInt(req.query.hours) || 24;
+    const db = require('../services/database');
+
+    const since = `datetime('now', '-${hours} hours')`;
+    const queries = [
+        // total pageviews
+        `SELECT COUNT(*) as total FROM visitor_events WHERE site_id=${siteId} AND datetime(timestamp) >= ${since}`,
+        // unique sessions
+        `SELECT COUNT(DISTINCT COALESCE(session_id, ip_hash)) as sessions FROM visitor_events WHERE site_id=${siteId} AND datetime(timestamp) >= ${since}`,
+        // unique IPs
+        `SELECT COUNT(DISTINCT ip_hash) as unique_ips FROM visitor_events WHERE site_id=${siteId} AND datetime(timestamp) >= ${since}`,
+        // top pages
+        `SELECT path, COUNT(*) as views FROM visitor_events WHERE site_id=${siteId} AND datetime(timestamp) >= ${since} GROUP BY path ORDER BY views DESC LIMIT 8`,
+        // top referrers
+        `SELECT referrer, COUNT(*) as count FROM visitor_events WHERE site_id=${siteId} AND referrer IS NOT NULL AND referrer != '' AND datetime(timestamp) >= ${since} GROUP BY referrer ORDER BY count DESC LIMIT 6`,
+        // hourly trend (last 24h bucketed by hour)
+        `SELECT strftime('%Y-%m-%dT%H:00', timestamp) as hour, COUNT(*) as views FROM visitor_events WHERE site_id=${siteId} AND datetime(timestamp) >= ${since} GROUP BY hour ORDER BY hour ASC`,
+    ];
+
+    Promise.all(queries.map((q, i) => new Promise(resolve => {
+        const method = i >= 3 ? 'all' : 'get';
+        db[method](q, [], (err, rows) => resolve(err ? (i >= 3 ? [] : {}) : rows));
+    }))).then(([total, sessions, ips, topPages, topReferrers, hourly]) => {
+        res.json({
+            totalViews: total?.total || 0,
+            uniqueSessions: sessions?.sessions || 0,
+            uniqueIPs: ips?.unique_ips || 0,
+            topPages: topPages || [],
+            topReferrers: topReferrers || [],
+            hourly: hourly || [],
+        });
+    });
+});
+
+// GET /api/visitor/sites — list admin's monitored sites (for dropdown in settings, admin only)
+app.get('/api/visitor/sites', requireAdmin, async (req, res) => {
+    try {
+        const userId = getUserId(req); if (!userId) return res.status(401).json({ error: 'Authentication required' });
+        const sites = await monitor.getSites(userId, true); // admin-only route
+        res.json(sites);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/analytics/summary — visitor stats for Settings panel
+app.get('/api/analytics/summary', (req, res) => {
+    const db = require('../services/database');
+    const crypto = require('crypto');
+
+    const queries = {
+        // Total views today
+        todayViews: `SELECT COUNT(*) as count FROM page_views WHERE date(timestamp) = date('now')`,
+        // Total views this week
+        weekViews: `SELECT COUNT(*) as count FROM page_views WHERE datetime(timestamp) >= datetime('now', '-7 days')`,
+        // Total views all time
+        totalViews: `SELECT COUNT(*) as count FROM page_views`,
+        // Unique sessions today
+        todaySessions: `SELECT COUNT(DISTINCT COALESCE(session_id, ip_hash)) as count FROM page_views WHERE date(timestamp) = date('now')`,
+        // Top pages (last 7 days)
+        topPages: `SELECT path, COUNT(*) as views FROM page_views WHERE datetime(timestamp) >= datetime('now', '-7 days') GROUP BY path ORDER BY views DESC LIMIT 6`,
+        // Views per day (last 7 days)
+        dailyViews: `SELECT date(timestamp) as day, COUNT(*) as views FROM page_views WHERE datetime(timestamp) >= datetime('now', '-7 days') GROUP BY day ORDER BY day ASC`,
+        // Total registered users
+        totalUsers: `SELECT COUNT(*) as count FROM users`,
+    };
+
+    const results = {};
+    const keys = Object.keys(queries);
+    let done = 0;
+
+    for (const key of keys) {
+        const method = key === 'topPages' || key === 'dailyViews' ? 'all' : 'get';
+        db[method](queries[key], [], (err, rows) => {
+            results[key] = rows;
+            if (++done === keys.length) {
+                // Live connections from Socket.io
+                const liveConnections = io.engine?.clientsCount || 0;
+                res.json({
+                    todayViews:    results.todayViews?.count || 0,
+                    weekViews:     results.weekViews?.count || 0,
+                    totalViews:    results.totalViews?.count || 0,
+                    todaySessions: results.todaySessions?.count || 0,
+                    liveNow:       liveConnections,
+                    totalUsers:    results.totalUsers?.count || 0,
+                    topPages:      results.topPages || [],
+                    dailyViews:    results.dailyViews || [],
+                });
+            }
+        });
+    }
+});
+
 
 
 // --------------------------------------------------------------------------
@@ -1198,8 +1472,14 @@ async function startServer() {
         const dbPath = process.env.DATABASE_PATH || './devops.sqlite';
         console.log('\n🔍 Validating environment variables...');
 
+        // Resolve admin login from GITHUB_TOKEN before anything else
+        await resolveAdminLogin();
+
         // Initialize database
         await initializeDatabase(dbPath);
+
+        // Start background uptime monitor
+        monitor.startMonitor();
 
         // Start server
         server.listen(PORT, () => {

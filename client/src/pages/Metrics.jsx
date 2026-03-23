@@ -92,6 +92,12 @@ const Metrics = () => {
     }, [selectedRepo]);
 
     const load = useCallback(async (r) => {
+        if (!selectedRepo) {
+            setMetricsData(null);
+            setCharts({});
+            setLoading(false);
+            return;
+        }
         setLoading(true);
         if (controller.current) controller.current.abort();
         controller.current = new AbortController();
@@ -286,8 +292,13 @@ const Metrics = () => {
 
     useEffect(() => { load(range); }, [range, load]);
 
-    // Always show the Datadog panel — data comes from local DB, not Datadog API
+    // Only show the Datadog panel when a repo is selected — data comes from local DB
     useEffect(() => {
+        if (!selectedRepo) {
+            setDdEnabled(false);
+            setDdPoints(null);
+            return;
+        }
         setDdEnabled(true);
         loadDatadog(ddMetric.query, ddRange);
     }, [selectedRepo]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -384,8 +395,17 @@ const Metrics = () => {
                 ))}
             </div>
 
+            {/* Empty state — no repo selected */}
+            {!selectedRepo && (
+                <div style={{ padding: 60, textAlign: 'center', background: 'rgba(255,255,255,0.02)', borderRadius: 24, border: '1px dashed rgba(255,255,255,0.1)' }}>
+                    <BarChart2 size={48} style={{ color: 'rgba(255,255,255,0.1)', margin: '0 auto 16px' }} />
+                    <div style={{ color: '#fff', fontWeight: 600 }}>No repository selected</div>
+                    <div style={{ color: 'rgba(255,255,255,0.3)', fontSize: 13, marginTop: 4 }}>Select a repository from the top bar to view metrics.</div>
+                </div>
+            )}
+
             {/* Empty state (no workflow run data) */}
-{!loading && (!metricsData?.rawRuns || metricsData.rawRuns.length === 0) && (
+{!loading && selectedRepo && (!metricsData?.rawRuns || metricsData.rawRuns.length === 0) && (
   <div
     style={{
       marginBottom: 24,
@@ -408,6 +428,7 @@ const Metrics = () => {
 )}
 
             {/* Charts Grid */}
+            {selectedRepo && (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
                 <ChartCard title="Build Efficiency" icon={Clock} badge={{ label: 'Mins', className: 'badge-blue' }}>
                     {loading ? <div className="h-full skeleton rounded-xl" /> : charts.buildDuration ? <Line key={`bd-${range}`} data={charts.buildDuration} options={LINE_OPTS('Duration', 'm')} /> : <div className="flex h-full w-full items-center justify-center text-slate-500 text-sm">No data available</div>}
@@ -422,6 +443,7 @@ const Metrics = () => {
                     {loading ? <div className="h-full skeleton rounded-xl" /> : charts.leadTime ? <Line key={`lt-${range}`} data={charts.leadTime} options={LINE_OPTS('Hours', 'h')} /> : <div className="flex h-full w-full items-center justify-center text-slate-500 text-sm">No data available</div>}
                 </ChartCard>
             </div>
+            )}
 
             {/* Datadog Live Metrics */}
             {ddEnabled && (

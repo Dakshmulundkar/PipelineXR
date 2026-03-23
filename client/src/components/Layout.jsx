@@ -4,8 +4,10 @@ import { useAppContext } from '../contexts/AppContext';
 import {
     LayoutDashboard, GitBranch, ShieldCheck,
     BarChart2, FileText, Bell, Search, Settings,
-    ChevronRight, LogOut, Command
+    ChevronRight, LogOut, Command, Activity
 } from 'lucide-react';
+import SettingsPanel from './SettingsPanel';
+import { api } from '../services/api';
 
 const NAV = [
     { label: 'Dashboard', to: '/', icon: LayoutDashboard },
@@ -13,7 +15,18 @@ const NAV = [
     { label: 'Security', to: '/security', icon: ShieldCheck },
     { label: 'Metrics', to: '/metrics', icon: BarChart2 },
     { label: 'Reports', to: '/reports', icon: FileText },
+    { label: 'Monitoring', to: '/monitoring', icon: Activity },
 ];
+
+// Generate stable session ID once per tab (outside component to avoid render-time side effects)
+const getSessionId = () => {
+    let sid = sessionStorage.getItem('pxr_sid');
+    if (!sid) {
+        sid = Date.now().toString(36) + Math.random().toString(36).slice(2);
+        sessionStorage.setItem('pxr_sid', sid);
+    }
+    return sid;
+};
 
 const Layout = ({ children }) => {
     const { pathname } = useLocation();
@@ -24,7 +37,16 @@ const Layout = ({ children }) => {
     const [repoOpen, setRepoOpen] = useState(false);
     const repoRef = useRef(null);
     const searchRef = useRef(null);
-    const { user, repos, selectedRepo, setSelectedRepo } = useAppContext();
+    const { user, repos, selectedRepo, setSelectedRepo, isAdmin } = useAppContext();
+    const [settingsOpen, setSettingsOpen] = useState(false);
+
+    // Stable session ID for this browser tab
+    const sessionId = useRef(getSessionId());
+
+    // Track page views on every route change
+    useEffect(() => {
+        api.trackPageView(pathname, sessionId.current);
+    }, [pathname]);
 
     // Close repo dropdown on outside click
     useEffect(() => {
@@ -137,7 +159,7 @@ const Layout = ({ children }) => {
                 {/* Nav */}
                 <nav style={{ flex: 1, padding: '12px 12px', overflowY: 'auto' }}>
                     <div style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.2)', paddingLeft: 12, marginBottom: 12, letterSpacing: '0.05em' }}>MAIN MENU</div>
-                    {NAV.map(({ label, to, icon: NavIcon }) => { // eslint-disable-line no-unused-vars
+                    {NAV.map(({ label, to, icon: NavIcon }) => {
                         const active = pathname === to;
                         return (
                             <Link key={to} to={to} style={{ textDecoration: 'none' }}>
@@ -176,10 +198,11 @@ const Layout = ({ children }) => {
                             <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                 {user?.name || user?.login || 'Connecting...'}
                             </div>
-                            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 1 }}>Administrator</div>
+                            {isAdmin && (
+                                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 1 }}>Administrator</div>
+                            )}
                         </div>
-                        <Settings size={14} className="text-white/20 hover:text-white cursor-pointer" />
-                    </div>
+                        <Settings size={14} className="text-white/20 hover:text-white cursor-pointer" onClick={() => setSettingsOpen(true)} />                    </div>
                 </div>
             </aside>
 
@@ -405,6 +428,8 @@ const Layout = ({ children }) => {
                     {children}
                 </main>
             </div>
+
+            <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
         </div>
     );
 };

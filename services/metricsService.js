@@ -21,40 +21,36 @@ class MetricsService {
         return out;
     }
 
-    async getDoraMetrics(repo = null, days = 7) {
+    async getDoraMetrics(repo = null, days = 7, userId = null) {
         return new Promise((resolve, reject) => {
             const safeDays = Number(days) || 7;
+            const userFilter = userId ? 'AND user_id = ?' : '';
 
-            // 1) Pull raw runs for charts — no hard limit, scoped by date range
+            // 1) Pull raw runs for charts
             const rawSql = `
-      SELECT
-        run_started_at,
-        created_at,
-        updated_at,
-        conclusion
+      SELECT run_started_at, created_at, updated_at, conclusion
       FROM workflow_runs
       WHERE datetime(run_started_at) >= datetime('now', '-' || ? || ' days')
       ${repo ? 'AND repository = ?' : ''}
+      ${userFilter}
       ORDER BY datetime(run_started_at) DESC
     `;
-
-            const rawParams = repo ? [safeDays, repo] : [safeDays];
+            const rawParams = [safeDays, ...(repo ? [repo] : []), ...(userId ? [userId] : [])];
 
             this.db.all(rawSql, rawParams, (rawErr, rawRuns) => {
                 if (rawErr) return reject(rawErr);
 
                 // 2) Aggregate KPIs
                 const kpiSql = `
-        SELECT
-          COUNT(*) as total_runs,
+        SELECT COUNT(*) as total_runs,
           SUM(CASE WHEN conclusion = 'success' THEN 1 ELSE 0 END) as successful_runs,
           AVG(duration_seconds) as avg_duration_seconds
         FROM workflow_runs
         WHERE datetime(run_started_at) >= datetime('now', '-' || ? || ' days')
         ${repo ? 'AND repository = ?' : ''}
+        ${userFilter}
       `;
-
-                const kpiParams = repo ? [safeDays, repo] : [safeDays];
+                const kpiParams = [safeDays, ...(repo ? [repo] : []), ...(userId ? [userId] : [])];
 
                 this.db.get(kpiSql, kpiParams, (kpiErr, row) => {
                     if (kpiErr) return reject(kpiErr);
@@ -62,32 +58,23 @@ class MetricsService {
                     const totalRuns = row?.total_runs || 0;
                     const successfulRuns = row?.successful_runs || 0;
                     const avgDurationSeconds = row?.avg_duration_seconds || 0;
-
                     const successRate = totalRuns > 0 ? Math.round((successfulRuns / totalRuns) * 100) : 0;
                     const avgBuildDuration = avgDurationSeconds > 0 ? Math.round((avgDurationSeconds / 60) * 10) / 10 : 0;
-                    // deploymentFrequency = successful runs per day over the range
                     const deploymentFrequency = safeDays > 0 ? Math.round((successfulRuns / safeDays) * 10) / 10 : 0;
-                    // avgWaitTime = avg queue wait (time from created_at to run_started_at) in hours
+
                     const waitSql = `
                         SELECT AVG((julianday(run_started_at) - julianday(created_at)) * 24) as avg_wait_hours
                         FROM workflow_runs
                         WHERE datetime(run_started_at) >= datetime('now', '-' || ? || ' days')
                         AND run_started_at IS NOT NULL AND created_at IS NOT NULL
                         ${repo ? 'AND repository = ?' : ''}
+                        ${userFilter}
                     `;
-                    const waitParams = repo ? [safeDays, repo] : [safeDays];
-                    this.db.get(waitSql, waitParams, (waitErr, waitRow) => {
+                    const waitParams = [safeDays, ...(repo ? [repo] : []), ...(userId ? [userId] : [])];
+                    this.db.get(waitSql, waitParams, (_waitErr, waitRow) => {
                         const avgWaitTime = waitRow?.avg_wait_hours > 0
-                            ? Math.round(waitRow.avg_wait_hours * 100) / 100
-                            : 0;
-                        resolve({
-                            avgBuildDuration,
-                            totalDeployments: successfulRuns,
-                            deploymentFrequency,
-                            avgWaitTime,
-                            successRate,
-                            rawRuns: rawRuns || []
-                        });
+                            ? Math.round(waitRow.avg_wait_hours * 100) / 100 : 0;
+                        resolve({ avgBuildDuration, totalDeployments: successfulRuns, deploymentFrequency, avgWaitTime, successRate, rawRuns: rawRuns || [] });
                     });
                 });
             });
@@ -97,7 +84,7 @@ class MetricsService {
     // --------------------------------------------------------------------------
 // NEW: Sync workflow runs from GitHub Actions into workflow_runs table
 // --------------------------------------------------------------------------
-async syncWorkflowRunsFromGitHub(repository, days = 7, userId = 1) {
+async syncWorkflowRunsFromGitHub(repository, days = 7, userId) {
     const safeDays = Number(days) || 7;
 
     if (!repository || !repository.includes('/')) {
@@ -227,7 +214,7 @@ if (runsArray[0]) console.log('[DORA SYNC] first run id:', runsArray[0].id, 'nam
 
     // Fire DORA metrics to Datadog after sync (non-blocking)
     try {
-        const doraData = await this.getDoraMetrics(repository, 7);
+        const doraData = await this.getDoraMetrics(repository, 7, userId);
         const datadog = require('./datadog');
         datadog.trackDoraMetrics(repository, doraData).catch(() => {});
     } catch (e) { /* non-fatal */ }
@@ -235,39 +222,30 @@ if (runsArray[0]) console.log('[DORA SYNC] first run id:', runsArray[0].id, 'nam
     return result;
 }
 
-    getTrend(metricName, days = 7, repo = null) {
+    getTrend(metricName, days = 7, repo = null, userId = null) {
         return new Promise((resolve, reject) => {
+            const userFilter = userId ? 'AND user_id = ?' : '';
+            const extraParam = userId ? [userId] : [];
             let sql = '';
-            let params = repo ? [days, repo] : [days];
+            let params = [days, ...(repo ? [repo] : []), ...extraParam];
             const repoFilter = repo ? 'AND repository = ?' : '';
 
             if (metricName === 'deploy_frequency') {
-                sql = `
-                    SELECT DATE(run_started_at) as date, COUNT(*) as value
+                sql = `SELECT DATE(run_started_at) as date, COUNT(*) as value
                     FROM workflow_runs
                     WHERE datetime(run_started_at) >= datetime('now', '-' || ? || ' days')
-                    ${repoFilter}
-                    AND conclusion = 'success'
-                    GROUP BY date
-                `;
+                    ${repoFilter} ${userFilter} AND conclusion = 'success' GROUP BY date`;
             } else if (metricName === 'success_rate') {
-                sql = `
-                    SELECT DATE(run_started_at) as date, 
+                sql = `SELECT DATE(run_started_at) as date,
                     ROUND(SUM(CASE WHEN conclusion = 'success' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 1) as value
                     FROM workflow_runs
                     WHERE datetime(run_started_at) >= datetime('now', '-' || ? || ' days')
-                    ${repoFilter}
-                    GROUP BY date
-                `;
+                    ${repoFilter} ${userFilter} GROUP BY date`;
             } else if (metricName === 'build_duration') {
-                sql = `
-                    SELECT DATE(run_started_at) as date, 
-                    ROUND(AVG(duration_seconds) / 60.0, 1) as value
+                sql = `SELECT DATE(run_started_at) as date, ROUND(AVG(duration_seconds) / 60.0, 1) as value
                     FROM workflow_runs
                     WHERE datetime(run_started_at) >= datetime('now', '-' || ? || ' days')
-                    ${repoFilter}
-                    GROUP BY date
-                `;
+                    ${repoFilter} ${userFilter} GROUP BY date`;
             } else {
                 return resolve([]);
             }

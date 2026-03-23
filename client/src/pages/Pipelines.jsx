@@ -132,6 +132,12 @@ const Pipelines = () => {
     const [refreshing, setRefreshing] = useState(false);
 
     const load = async () => {
+        if (!selectedRepo) {
+            setRuns([]);
+            setLoading(false);
+            setRefreshing(false);
+            return;
+        }
         setRefreshing(true);
         try {
             const data = await api.getPipelineRuns(20, selectedRepo);
@@ -145,7 +151,7 @@ const Pipelines = () => {
     };
 
     const syncAndLoad = async () => {
-        if (!selectedRepo) { load(); return; }
+        if (!selectedRepo) { setRuns([]); setLoading(false); return; }
         setRefreshing(true);
         try {
             await api.syncPipeline(selectedRepo);

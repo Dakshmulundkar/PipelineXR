@@ -105,6 +105,23 @@ export const api = {
         if (repository) url += `&repository=${encodeURIComponent(repository)}`;
         return get(url);
     },
+
+    // Analytics
+    trackPageView: (path, sessionId) => apiInstance.post(`${API_BASE}/analytics/pageview`, { path, sessionId }).catch(() => {}),
+    getAnalyticsSummary: () => get(`${API_BASE}/analytics/summary`),
+
+    // Uptime Monitor
+    getMonitorSites: () => get(`${API_BASE}/monitor/sites`),
+    addMonitorSite: (url, alert_email) => apiInstance.post(`${API_BASE}/monitor/sites`, { url, alert_email }).then(r => r.data),
+    removeMonitorSite: (id) => apiInstance.delete(`${API_BASE}/monitor/sites/${id}`).then(r => r.data),
+    getMonitorChecks: (id, hours = 24) => get(`${API_BASE}/monitor/sites/${id}/checks?hours=${hours}`),
+    getMonitorStats: (id, hours = 24) => get(`${API_BASE}/monitor/sites/${id}/stats?hours=${hours}`),
+    getMonitorIncidents: (id) => get(`${API_BASE}/monitor/sites/${id}/incidents`),
+
+    // Visitor Analytics (admin only)
+    getVisitorSites: () => get(`${API_BASE}/visitor/sites`),
+    getVisitorScript: (siteId) => get(`${API_BASE}/visitor/script/${siteId}`),
+    getVisitorStats: (siteId, hours = 24) => get(`${API_BASE}/visitor/stats/${siteId}?hours=${hours}`),
 };
 
 export default api;

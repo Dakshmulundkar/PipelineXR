@@ -11,6 +11,7 @@ export const AppProvider = ({ children, isAuthenticated }) => {
     const [user, setUser] = useState(null);
     const [repos, setRepos] = useState([]);
     const [selectedRepo, setSelectedRepo] = useState('');
+    const [isAdmin, setIsAdmin] = useState(false);
     const socketRef = useRef(null);
 
     // Global scan state — persists across page navigation
@@ -52,6 +53,7 @@ export const AppProvider = ({ children, isAuthenticated }) => {
         api.checkAuth().then(res => {
             if (res.authenticated && res.user) {
                 setUser(res.user);
+                setIsAdmin(res.isAdmin === true);
             } else {
                 localStorage.removeItem('sf_auth');
                 window.location.href = '/login';
@@ -64,11 +66,13 @@ export const AppProvider = ({ children, isAuthenticated }) => {
         api.getRepos().then(data => {
             if (Array.isArray(data)) {
                 setRepos(data);
-                if (data.length > 0 && !selectedRepo) {
-                    setSelectedRepo(data[0].full_name);
+                if (data.length > 0) {
+                    setSelectedRepo(prev => prev || data[0].full_name);
+                } else {
+                    setSelectedRepo('');
                 }
             }
-        }).catch(() => { });
+        }).catch(() => { setSelectedRepo(''); });
     }, [isAuthenticated]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Start a background scan — safe to call from any page
@@ -121,6 +125,7 @@ export const AppProvider = ({ children, isAuthenticated }) => {
     return (
         <AppContext.Provider value={{
             user, repos, selectedRepo, setSelectedRepo,
+            isAdmin,
             socket: socketRef.current,
             scanState, startScan,
         }}>

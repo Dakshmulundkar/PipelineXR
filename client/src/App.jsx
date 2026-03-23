@@ -7,6 +7,7 @@ import Security from './pages/Security';
 import Pipelines from './pages/Pipelines';
 import Metrics from './pages/Metrics';
 import Reports from './pages/Reports';
+import Monitoring from './pages/Monitoring';
 import Login from './pages/Login';
 import AuthCallback from './pages/AuthCallback';
 import { AppProvider } from './contexts/AppContext';
@@ -56,6 +57,7 @@ function App() {
             <Route path="/security" element={<ProtectedRoute isAuthenticated={isAuthenticated}><Security /></ProtectedRoute>} />
             <Route path="/metrics" element={<ProtectedRoute isAuthenticated={isAuthenticated}><Metrics /></ProtectedRoute>} />
             <Route path="/reports" element={<ProtectedRoute isAuthenticated={isAuthenticated}><Reports /></ProtectedRoute>} />
+            <Route path="/monitoring" element={<ProtectedRoute isAuthenticated={isAuthenticated}><Monitoring /></ProtectedRoute>} />
 
             <Route path="*" element={
               <div className="flex flex-col items-center justify-center h-full py-20 animate-fade-in">

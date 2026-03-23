@@ -44,7 +44,8 @@ function initializeDatabase(dbPath) {
         const tablesWithUserId = [
             'events', 'logs', 'ci_runs', 'metrics', 'test_runs', 'deployments', 
             'pipeline_runs', 'github_webhooks', 'workflow_runs', 'workflow_jobs', 
-            'job_steps', 'pipeline_analytics', 'vulnerabilities', 'scan_results'
+            'job_steps', 'pipeline_analytics', 'vulnerabilities', 'scan_results',
+            'monitored_sites', 'uptime_checks', 'uptime_incidents'
         ];
 
         // Ensure new columns on vulnerabilities table
