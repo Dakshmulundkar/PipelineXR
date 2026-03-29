@@ -1,71 +1,19 @@
-const sqlite3 = require('sqlite3').verbose();
-const fs = require('fs');
-const path = require('path');
+require('dotenv').config();
+const { initializeDatabase } = require('./services/db-init');
 
-const dbPath = path.join(__dirname, 'devops.sqlite');
-const schemaPath = path.join(__dirname, 'schema.sql');
+console.log('🔧 Initializing Neon PostgreSQL database...');
 
-console.log('🔧 Initializing database...');
-console.log(`📁 Database path: ${dbPath}`);
+if (!process.env.DATABASE_URL) {
+    console.error('❌ DATABASE_URL environment variable is not set.');
+    process.exit(1);
+}
 
-// Create database connection
-const db = new sqlite3.Database(dbPath, (err) => {
-    if (err) {
-        console.error('❌ Error opening database:', err);
+initializeDatabase()
+    .then(() => {
+        console.log('✅ Database initialized successfully');
+        process.exit(0);
+    })
+    .catch((err) => {
+        console.error('❌ Database initialization failed:', err.message);
         process.exit(1);
-    }
-    console.log('✅ Database connection established');
-});
-
-// Read schema file
-const schema = fs.readFileSync(schemaPath, 'utf8');
-
-// Split schema into individual statements
-const statements = schema
-    .split(';')
-    .map(s => s.trim())
-    .filter(s => s.length > 0);
-
-console.log(`📋 Found ${statements.length} SQL statements to execute`);
-
-// Execute statements serially to avoid index-before-table race conditions
-db.serialize(() => {
-    let errors = 0;
-    statements.forEach((statement, index) => {
-        db.run(statement, (err) => {
-            if (err) {
-                // Ignore "already exists" — safe to re-run
-                if (!err.message.includes('already exists')) {
-                    console.error(`❌ Error executing statement ${index + 1}:`, err.message);
-                    errors++;
-                }
-            }
-        });
     });
-
-    // Migrate: add new columns to workflow_runs if they don't exist yet
-    const newCols = [
-        { name: 'head_commit_message', type: 'TEXT' },
-        { name: 'head_commit_author',  type: 'TEXT' },
-        { name: 'triggering_actor',    type: 'TEXT' },
-    ];
-    newCols.forEach(col => {
-        db.run(`ALTER TABLE workflow_runs ADD COLUMN ${col.name} ${col.type}`, (err) => {
-            if (err && !err.message.includes('duplicate column')) {
-                // column already exists — fine
-            }
-        });
-    });
-
-    // Verify tables after all statements complete
-    db.all("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name", (err, tables) => {
-        if (err) {
-            console.error('❌ Error listing tables:', err);
-        } else {
-            console.log('✅ Database initialized successfully!');
-            console.log(`\n📊 Database contains ${tables.length} tables:`);
-            tables.forEach(table => console.log(`   - ${table.name}`));
-        }
-        db.close();
-    });
-});

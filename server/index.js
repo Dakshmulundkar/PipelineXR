@@ -5,20 +5,24 @@ const http = require('http');
 const socketIo = require('socket.io');
 const cors = require('cors');
 const session = require('express-session');
-const SQLiteStore = require('connect-sqlite3')(session);
+const pgSession = require('connect-pg-simple')(session);
+const { Pool } = require('pg');
 const rateLimit = require('express-rate-limit');
 const slowDown = require('express-slow-down');
 const helmet = require('helmet');
 const path = require('path');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { initializeDatabase } = require('../services/db-init');
-require('dotenv').config();
 
 // Configuration
 const PORT = process.env.PORT || 3001;
 const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID;
 const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET;
-const SESSION_SECRET = process.env.SESSION_SECRET || 'your-secret-key';
+const SESSION_SECRET = process.env.SESSION_SECRET;
+if (!SESSION_SECRET) {
+    console.error('FATAL: SESSION_SECRET is not set. Refusing to start with an insecure default.');
+    process.exit(1);
+}
 const FRONTEND_URL = process.env.FRONTEND_URL || `http://localhost:${PORT}`;
 
 // ── Resolve admin login from GITHUB_TOKEN at startup (no hardcoding) ──────────
@@ -57,12 +61,16 @@ const io = socketIo(server);
 
 // 1. Security headers (XSS, clickjacking, MIME sniffing, etc.)
 app.use(helmet({
-    contentSecurityPolicy: false, // disable if you use inline scripts/styles in frontend
+    contentSecurityPolicy: false,
     crossOriginEmbedderPolicy: false,
 }));
 
 // 2. Trust proxy — required so rate limiter sees real IP behind Nginx/Cloudflare
 app.set('trust proxy', 1);
+
+// 3. IDS — intrusion detection, anomaly detection, scanner blocking
+const ids = require('../services/ids');
+app.use(ids.idsMiddleware);
 
 // 3. Block oversized request bodies early (before JSON parse)
 app.use((req, res, next) => {
@@ -86,16 +94,24 @@ app.use(express.json());
 app.use(express.text()); // For raw log ingestion
 
 app.use(session({
-    store: new SQLiteStore({
-        db: 'sessions.sqlite',
-        dir: process.cwd()
+    store: new pgSession({
+        pool: new Pool({
+            connectionString: process.env.DATABASE_URL,
+            ssl: process.env.DATABASE_URL && process.env.DATABASE_URL.includes('localhost')
+                ? false : { rejectUnauthorized: false },
+            max: 3, // dedicated pool for sessions — keep separate from main pool
+        }),
+        tableName: 'session',
+        createTableIfMissing: true,
+        pruneSessionInterval: 60 * 60, // prune expired sessions every hour
     }),
     secret: SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
+    rolling: true, // reset maxAge on every request — keeps active users logged in
     cookie: {
-        secure: false, // Set to true in production with HTTPS
-        maxAge: 24 * 60 * 60 * 1000, // 24 hours
+        secure: process.env.NODE_ENV === 'production',
+        maxAge: 24 * 60 * 60 * 1000,
         httpOnly: true,
         sameSite: 'lax'
     }
@@ -112,14 +128,14 @@ const speedLimiter = slowDown({
 });
 app.use('/api/', speedLimiter);
 
-// General API: 60 req/15min per IP (tighter than before)
+// General API: 200 req/15min per IP
 const apiLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 60,
+    max: 200,
     standardHeaders: true,
     legacyHeaders: false,
     message: { error: 'Too many requests, slow down.' },
-    skip: (req) => req.path === '/api/github/webhook', // webhooks bypass
+    skip: (req) => req.path === '/api/github/webhook',
 });
 app.use('/api/', apiLimiter);
 
@@ -133,10 +149,10 @@ const authLimiter = rateLimit({
 });
 app.use('/auth/', authLimiter);
 
-// Expensive endpoints: scans, PDF, sync — 10/hour
+// Expensive endpoints: scans, PDF, sync — 30/hour
 const expensiveLimiter = rateLimit({
     windowMs: 60 * 60 * 1000,
-    max: 10,
+    max: 30,
     message: { error: 'Too many requests, please try again later.' },
     standardHeaders: true,
     legacyHeaders: false,
@@ -156,19 +172,30 @@ const securityScannerFull = require('../services/security/securityScanner');
 const monitor = require('../services/monitor');
 
 
-// Initialize Services
-const analytics = new AnalyticsService();
-const webhookService = new GitHubWebhookService();
-const realtimeService = new RealtimeStreamService(io);
+// Services are initialized inside startServer() after DB is ready
+let analytics, webhookService, realtimeService;
 
 // Initialize Gemini AI
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
-const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
 
 // --------------------------------------------------------------------------
 // Authentication Middleware & Routes
 // --------------------------------------------------------------------------
+
+// Health check — required by Render to confirm server is alive
+app.get('/health', (req, res) => {
+    res.json({ status: 'ok', timestamp: new Date().toISOString(), uptime: process.uptime() });
+});
+
+// Repository param sanitizer — rejects anything that doesn't look like owner/repo
+const REPO_RE = /^[a-zA-Z0-9_.\-]+\/[a-zA-Z0-9_.\-]+$/;
+function sanitizeRepo(repo) {
+    if (!repo) return null;
+    const clean = repo.toString().trim().slice(0, 200);
+    return REPO_RE.test(clean) ? clean : null;
+}
 
 // Configuration check endpoint
 app.get('/api/config/check', (req, res) => {
@@ -218,11 +245,12 @@ app.get('/auth/github', (req, res) => {
 app.get('/auth/github/callback', async (req, res) => {
     const { code, error, error_description } = req.query;
 
-    console.log('GitHub callback received:', { code: code ? 'present' : 'missing', error, error_description });
+    console.log('GitHub callback received:', { code: code ? 'present' : 'missing', error });
 
     if (error) {
-        console.error('GitHub OAuth error:', error, error_description);
-        return res.redirect(`/login.html?error=${error}&description=${encodeURIComponent(error_description || '')}`);
+        console.error('GitHub OAuth error:', error);
+        // Don't reflect raw OAuth error strings into the redirect — use a safe generic message
+        return res.redirect(`/login.html?error=oauth_error`);
     }
 
     if (!code) {
@@ -251,8 +279,8 @@ app.get('/auth/github/callback', async (req, res) => {
         console.log('Token response status:', tokenResponse.status);
 
         if (tokenData.error) {
-            console.error('GitHub Token Error:', tokenData);
-            return res.redirect(`/login.html?error=${tokenData.error}&description=${encodeURIComponent(tokenData.error_description || '')}`);
+            console.error('GitHub Token Error:', tokenData.error);
+            return res.redirect(`/login.html?error=token_error`);
         }
 
         if (!tokenData.access_token) {
@@ -276,7 +304,7 @@ app.get('/auth/github/callback', async (req, res) => {
 
         console.log('User info fetched:', userInfo.login);
 
-        // 3. Upsert User into local SQLite
+        // 3. Upsert User into local DB
         try {
             const dbUser = await analytics.upsertUser({
                 email: userInfo.email,
@@ -289,6 +317,9 @@ app.get('/auth/github/callback', async (req, res) => {
             console.log('User synced to local database with ID:', dbUser?.id);
         } catch (upsertError) {
             console.error('Local User Upsert Error:', upsertError);
+            // If we can't create/find the user record, the session will have no dbId
+            // and every authenticated API call will return 401. Fail the login cleanly.
+            return res.redirect(`${FRONTEND_URL}/auth/callback?error=db_error`);
         }
 
         // 4. Set Session
@@ -311,13 +342,15 @@ app.get('/auth/github/callback', async (req, res) => {
         console.log('Redirecting to dashboard...');
         res.redirect(`${FRONTEND_URL}/auth/callback?status=success`);
     } catch (error) {
-        console.error('GitHub OAuth error:', error);
-        res.redirect(`${FRONTEND_URL}/auth/callback?error=oauth_failed&description=${encodeURIComponent(error.message)}`);
+        console.error('GitHub OAuth error:', error.message);
+        res.redirect(`${FRONTEND_URL}/auth/callback?error=oauth_failed`);
     }
 });
 
 app.get('/auth/logout', (req, res) => {
-    req.session.destroy();
+    req.session.destroy((err) => {
+        if (err) console.error('[LOGOUT] Session destroy error:', err.message);
+    });
     res.redirect(`${FRONTEND_URL}/login`);
 });
 
@@ -337,15 +370,13 @@ app.get('/auth/user', (req, res) => {
 // Data Routes
 // --------------------------------------------------------------------------
 
-// Apply API auth to all /api/ routes EXCEPT webhooks, health checks, and config
+// Apply API auth to all /api/ routes EXCEPT webhooks, health checks, config, and visitor beacons
 app.use('/api', (req, res, next) => {
-    // Session-less access enabled for Hackathon Demo Mode
-    return next();
-    // const publicPaths = ['/github/webhook', '/webhook', '/webhook/test', '/config/check'];
-    // if (publicPaths.some(p => req.path === p || req.path.startsWith(p))) {
-    //     return next();
-    // }
-    // requireApiAuth(req, res, next);
+    const publicPaths = ['/github/webhook', '/webhook', '/config/check', '/visitor/beacon'];
+    if (publicPaths.some(p => req.path === p || req.path.startsWith(p))) {
+        return next();
+    }
+    requireApiAuth(req, res, next);
 });
 
 // GitHub Webhooks
@@ -416,12 +447,13 @@ app.post('/api/ci/run', async (req, res) => {
             return res.status(400).json({ error: 'Missing required parameters: owner, repo, workflow_id' });
         }
 
-        await ensureGithub(req);
-        await githubService.triggerWorkflow(owner, repo, workflow_id, ref || 'main');
+        // Validate owner/repo format to prevent injection
+        const safeRepo = sanitizeRepo(`${owner}/${repo}`);
+        if (!safeRepo) return res.status(400).json({ error: 'Invalid owner or repo format' });
 
-        // Optional: Still run the local pipeline simulator if needed, or remove it
-        // const pipelineService = new PipelineService(io);
-        // pipelineService.runPipeline();
+        await ensureGithub(req);
+        const [safeOwner, safeRepoName] = safeRepo.split('/');
+        await githubService.triggerWorkflow(safeOwner, safeRepoName, workflow_id, ref || 'main');
 
         res.json({ status: 'dispatched' });
     } catch (error) {
@@ -504,6 +536,24 @@ app.post('/api/logs', (req, res) => {
 // Helper — extract userId from session, return null if not authenticated
 const getUserId = (req) => req.session.user?.dbId || null;
 
+// ── Sync throttle — skip GitHub API syncs done < 5 min ago per user+repo ──────
+const syncCache = new Map();
+const SYNC_TTL = 5 * 60 * 1000; // 5 minutes
+function shouldSync(userId, repo, type = 'dora') {
+    const key = `${type}:${userId}:${repo}`;
+    const last = syncCache.get(key);
+    if (last && Date.now() - last < SYNC_TTL) return false;
+    syncCache.set(key, Date.now());
+    return true;
+}
+// Clean up old entries every 10 min to prevent memory leak
+setInterval(() => {
+    const now = Date.now();
+    for (const [k, v] of syncCache.entries()) {
+        if (now - v > SYNC_TTL * 2) syncCache.delete(k);
+    }
+}, 10 * 60 * 1000);
+
 // Re-initialize GitHub service from session token for every API call if needed
 const ensureGithub = async (req) => {
     const token = req.session.githubToken || process.env.GITHUB_TOKEN;
@@ -560,7 +610,10 @@ app.get('/api/reports/tests', async (req, res) => {
         const reports = await analytics.getTestReports(userId, repository || null);
         const enriched = reports.map(r => ({
             ...r,
-            pass_rate: r.total_tests > 0 ? Math.round((r.passed / r.total_tests) * 100) : 0
+            total_tests: parseInt(r.total_tests) || 0,
+            passed: parseInt(r.passed) || 0,
+            failed: parseInt(r.failed) || 0,
+            pass_rate: parseInt(r.total_tests) > 0 ? Math.round((parseInt(r.passed) / parseInt(r.total_tests)) * 100) : 0
         }));
         res.json(enriched);
     } catch (error) {
@@ -590,9 +643,12 @@ app.get('/api/reports/summary', async (req, res) => {
 app.post('/api/reports/sync', expensiveLimiter, async (req, res) => {
     try {
         const userId = getUserId(req); if (!userId) return res.status(401).json({ error: 'Authentication required' });
-        const repository = (req.body?.repository || '').toString().trim();
-        if (!repository || !repository.includes('/')) {
+        const repository = sanitizeRepo(req.body?.repository) || '';
+        if (!repository) {
             return res.status(400).json({ error: 'Missing or invalid repository (expected owner/repo)' });
+        }
+        if (!shouldSync(userId, repository, 'reports')) {
+            return res.json({ success: true, skipped: true, reason: 'Recently synced' });
         }
         await ensureGithub(req);
         const result = await analytics.syncJobsFromGitHub(repository, userId);
@@ -603,82 +659,99 @@ app.post('/api/reports/sync', expensiveLimiter, async (req, res) => {
     }
 });
 
-// PDF download using puppeteer
+// PDF download using pdfkit (no Chrome/Puppeteer needed — works on Render)
 app.get('/api/reports/download', expensiveLimiter, async (req, res) => {
     try {
         const userId = getUserId(req); if (!userId) return res.status(401).json({ error: 'Authentication required' });
         const { repository } = req.query;
         const rawReports = await analytics.getTestReports(userId, repository || null);
 
-        // Ensure pass_rate is computed
         const reports = rawReports.map(r => ({
             ...r,
-            pass_rate: r.total_tests > 0 ? Math.round((r.passed / r.total_tests) * 100) : 0
+            total_tests: parseInt(r.total_tests) || 0,
+            passed: parseInt(r.passed) || 0,
+            failed: parseInt(r.failed) || 0,
+            pass_rate: parseInt(r.total_tests) > 0 ? Math.round((parseInt(r.passed) / parseInt(r.total_tests)) * 100) : 0
         }));
 
         const tot = reports.reduce((a, r) => a + (r.total_tests || 0), 0);
         const pass = reports.reduce((a, r) => a + (r.passed || 0), 0);
         const fail = reports.reduce((a, r) => a + (r.failed || 0), 0);
         const avgRate = reports.length > 0
-            ? Math.round(reports.reduce((a, r) => a + (r.pass_rate || 0), 0) / reports.length)
-            : 0;
+            ? Math.round(reports.reduce((a, r) => a + (r.pass_rate || 0), 0) / reports.length) : 0;
 
-        const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
-        <style>
-            body { font-family: Arial, sans-serif; padding: 40px; color: #111; }
-            h1 { font-size: 28px; margin-bottom: 4px; }
-            .sub { color: #666; font-size: 13px; margin-bottom: 32px; }
-            .stats { display: flex; gap: 24px; margin-bottom: 32px; }
-            .stat { background: #f5f5f5; border-radius: 10px; padding: 16px 24px; min-width: 120px; }
-            .stat .val { font-size: 28px; font-weight: 800; }
-            .stat .lbl { font-size: 11px; color: #888; text-transform: uppercase; margin-top: 4px; }
-            table { width: 100%; border-collapse: collapse; font-size: 13px; }
-            th { text-align: left; padding: 10px 12px; background: #f0f0f0; font-size: 11px; text-transform: uppercase; color: #666; }
-            td { padding: 10px 12px; border-bottom: 1px solid #eee; }
-            .pass { color: #16a34a; font-weight: 700; }
-            .fail { color: #dc2626; font-weight: 700; }
-        </style></head><body>
-        <h1>PipelineXR Audit Report</h1>
-        <div class="sub">Generated ${new Date().toLocaleString()}${repository ? ` &middot; ${repository}` : ''}</div>
-        <div class="stats">
-            <div class="stat"><div class="val">${tot}</div><div class="lbl">Total Steps</div></div>
-            <div class="stat"><div class="val" style="color:#16a34a">${pass}</div><div class="lbl">Passed</div></div>
-            <div class="stat"><div class="val" style="color:#dc2626">${fail}</div><div class="lbl">Failed</div></div>
-            <div class="stat"><div class="val">${avgRate}%</div><div class="lbl">Quality Index</div></div>
-        </div>
-        ${reports.length === 0 ? '<p style="color:#888">No job data available for this repository yet.</p>' : `
-        <table>
-            <thead><tr><th>Run ID</th><th>Suite / Job</th><th>Steps</th><th>Passed</th><th>Failed</th><th>Rate</th><th>Date</th></tr></thead>
-            <tbody>
-            ${reports.map(r => `<tr>
-                <td>#${r.run_id}</td>
-                <td>${r.suite_name || 'N/A'}</td>
-                <td>${r.total_tests}</td>
-                <td class="pass">${r.passed}</td>
-                <td class="${r.failed > 0 ? 'fail' : ''}">${r.failed}</td>
-                <td>${r.pass_rate}%</td>
-                <td>${r.latest_run ? new Date(r.latest_run).toLocaleDateString() : '-'}</td>
-            </tr>`).join('')}
-            </tbody>
-        </table>`}
-        </body></html>`;
-
-        const puppeteer = require('puppeteer');
-        const browser = await puppeteer.launch({
-            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
-            timeout: 30000
-        });
-        const page = await browser.newPage();
-        await page.setContent(html, { waitUntil: 'domcontentloaded', timeout: 15000 });
-        const pdf = await page.pdf({ format: 'A4', margin: { top: '20px', bottom: '20px', left: '20px', right: '20px' }, printBackground: true });
-        await browser.close();
+        const PDFDocument = require('pdfkit');
+        const doc = new PDFDocument({ margin: 40, size: 'A4' });
 
         res.setHeader('Content-Type', 'application/pdf');
         res.setHeader('Content-Disposition', `attachment; filename=pipelinexr-report-${Date.now()}.pdf`);
-        res.send(Buffer.from(pdf));
+        doc.pipe(res);
+
+        // Header
+        doc.fontSize(22).font('Helvetica-Bold').text('PipelineXR Audit Report', { align: 'left' });
+        doc.fontSize(10).font('Helvetica').fillColor('#666')
+            .text(`Generated ${new Date().toLocaleString()}${repository ? `  ·  ${repository}` : ''}`, { align: 'left' });
+        doc.moveDown(1.5);
+
+        // Stats row
+        const stats = [
+            { label: 'Total Steps', val: tot },
+            { label: 'Passed', val: pass },
+            { label: 'Failed', val: fail },
+            { label: 'Quality Index', val: `${avgRate}%` },
+        ];
+        const boxW = 115, boxH = 52, startX = 40;
+        stats.forEach((s, i) => {
+            const x = startX + i * (boxW + 8);
+            const y = doc.y;
+            doc.rect(x, y, boxW, boxH).fillAndStroke('#f5f5f5', '#e0e0e0');
+            doc.fillColor('#111').fontSize(20).font('Helvetica-Bold').text(String(s.val), x + 8, y + 8, { width: boxW - 16 });
+            doc.fillColor('#888').fontSize(9).font('Helvetica').text(s.label.toUpperCase(), x + 8, y + 34, { width: boxW - 16 });
+        });
+        doc.moveDown(4.5);
+
+        if (reports.length === 0) {
+            doc.fillColor('#888').fontSize(12).text('No job data available for this repository yet.');
+        } else {
+            // Table header
+            const cols = [60, 160, 50, 50, 50, 45, 80];
+            const headers = ['Run ID', 'Suite / Job', 'Steps', 'Passed', 'Failed', 'Rate', 'Date'];
+            let tx = 40, ty = doc.y;
+            doc.rect(tx, ty, 515, 20).fill('#f0f0f0');
+            headers.forEach((h, i) => {
+                doc.fillColor('#555').fontSize(9).font('Helvetica-Bold')
+                    .text(h, tx, ty + 5, { width: cols[i], align: 'left' });
+                tx += cols[i];
+            });
+            doc.moveDown(1.2);
+
+            reports.forEach((r, idx) => {
+                if (doc.y > 750) { doc.addPage(); }
+                tx = 40; ty = doc.y;
+                if (idx % 2 === 0) doc.rect(tx, ty - 2, 515, 18).fill('#fafafa');
+                const row = [
+                    `#${String(r.run_id).slice(-6)}`,
+                    r.suite_name || 'N/A',
+                    String(r.total_tests),
+                    String(r.passed),
+                    String(r.failed),
+                    `${r.pass_rate}%`,
+                    r.latest_run ? new Date(r.latest_run).toLocaleDateString() : '-',
+                ];
+                row.forEach((cell, i) => {
+                    const color = i === 3 ? '#16a34a' : i === 4 && r.failed > 0 ? '#dc2626' : '#111';
+                    doc.fillColor(color).fontSize(9).font('Helvetica')
+                        .text(cell, tx, ty, { width: cols[i], align: 'left' });
+                    tx += cols[i];
+                });
+                doc.moveDown(0.8);
+            });
+        }
+
+        doc.end();
     } catch (error) {
         console.error('PDF generation error:', error);
-        res.status(500).json({ error: 'Failed to generate PDF: ' + error.message });
+        if (!res.headersSent) res.status(500).json({ error: 'Failed to generate PDF: ' + error.message });
     }
 });
 
@@ -772,8 +845,24 @@ app.post('/api/security/scan/trivy', expensiveLimiter, async (req, res) => {
                 return res.json({ success: true, results: [], message: 'No scannable content found in repository.' });
             }
 
-                // Return results directly — no DB persistence
-            const results = scanResult.vulnerabilities;
+            // Persist to DB so AI insights and security summary can read them
+            const results = scanResult.vulnerabilities || [];
+            for (const v of results) {
+                try {
+                    await securityService.addVulnerability(
+                        userId, repoClean,
+                        v.scanner || (v.type === 'secret' ? 'trivy:secret' : v.type === 'misconfiguration' ? 'trivy:config' : 'trivy:vuln'),
+                        v.id || v.cve_id || null,
+                        v.package_name || v.packageName || null,
+                        (v.severity || 'low').toLowerCase(),
+                        v.description || v.title || null,
+                        v.primary_url || v.remediation || null,
+                        v.installed_version || null,
+                        v.fixed_version || null,
+                        v.primary_url || null
+                    );
+                } catch (_) { /* skip duplicates */ }
+            }
             io.emit('security_update', { type: 'SCAN_COMPLETED', repository: repoClean });
             return res.json({
                 success: true,
@@ -811,7 +900,24 @@ app.post('/api/security/scan/repo', expensiveLimiter, async (req, res) => {
             return res.status(500).json({ error: 'Scan failed — check server logs.' });
         }
 
-        // Return results directly — no DB persistence
+        // Persist to DB so AI insights and security summary can read them
+        const results = scanResult.vulnerabilities || [];
+        for (const v of results) {
+            try {
+                await securityService.addVulnerability(
+                    userId, repoFull,
+                    v.scanner || (v.type === 'secret' ? 'trivy:secret' : v.type === 'misconfiguration' ? 'trivy:config' : 'trivy:vuln'),
+                    v.id || v.cve_id || null,
+                    v.package_name || v.packageName || null,
+                    (v.severity || 'low').toLowerCase(),
+                    v.description || v.title || null,
+                    v.primary_url || v.remediation || null,
+                    v.installed_version || null,
+                    v.fixed_version || null,
+                    v.primary_url || null
+                );
+            } catch (_) { /* skip duplicates */ }
+        }
         io.emit('security_update', { type: 'SCAN_COMPLETED', repository: repoFull });
 
         res.json({
@@ -821,7 +927,7 @@ app.post('/api/security/scan/repo', expensiveLimiter, async (req, res) => {
             risk_level: scanResult.risk_level,
             security_metrics: scanResult.security_metrics,
             engine: scanResult.engine,
-            results: scanResult.vulnerabilities
+            results
         });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -832,6 +938,7 @@ app.get('/api/security/insights', async (req, res) => {
     try {
         const userId = getUserId(req); if (!userId) return res.status(401).json({ error: 'Authentication required' });
         const { repository } = req.query;
+        if (!repository) return res.status(400).json({ error: 'repository is required' });
         const vulnerabilities = await securityService.getVulnerabilities(repository, userId);
         
         if (!vulnerabilities || vulnerabilities.length === 0) {
@@ -839,7 +946,11 @@ app.get('/api/security/insights', async (req, res) => {
         }
         if (!process.env.GEMINI_API_KEY) return res.json({ insight: "Connect Gemini for AI analysis." });
 
-        const prompt = `SecOps Analysis for ${repository}: ${JSON.stringify(vulnerabilities.slice(0, 5))}`;
+        // Only send sanitized, minimal data to the AI — never raw user-controlled strings
+        const safeVulns = vulnerabilities.slice(0, 5).map(v => ({
+            id: v.cve_id, severity: v.severity, package: v.package_name, fixed: v.fixed_version
+        }));
+        const prompt = `You are a security analyst. Summarize these vulnerabilities and suggest remediation steps: ${JSON.stringify(safeVulns)}`;
         const result = await model.generateContent(prompt);
         res.json({ insight: (await result.response).text() });
     } catch (error) {
@@ -1037,9 +1148,12 @@ app.get('/api/pipeline/runs', async (req, res) => {
 app.post('/api/pipeline/sync', async (req, res) => {
     try {
         const userId = getUserId(req); if (!userId) return res.status(401).json({ error: 'Authentication required' });
-        const repository = (req.body?.repository || '').toString().trim();
-        if (!repository || !repository.includes('/')) {
+        const repository = sanitizeRepo(req.body?.repository) || '';
+        if (!repository) {
             return res.status(400).json({ error: 'Missing or invalid repository (expected owner/repo)' });
+        }
+        if (!shouldSync(userId, repository, 'pipeline')) {
+            return res.json({ success: true, skipped: true, reason: 'Recently synced' });
         }
         await ensureGithub(req);
         const [runsResult, jobsResult] = await Promise.allSettled([
@@ -1084,11 +1198,8 @@ app.post('/api/ci/run', async (req, res) => {
 // Deployment stats
 app.get('/api/deployments/stats', async (req, res) => {
     try {
-        const sqlite3 = require('sqlite3').verbose();
-        const dbPath = process.env.DATABASE_PATH || './devops.sqlite';
-        const db = new sqlite3.Database(dbPath);
+        const db = require('../services/database');
         db.all('SELECT * FROM deployments ORDER BY start_time DESC LIMIT 20', [], (err, rows) => {
-            db.close();
             if (err) return res.json({ deployments: [], total: 0 });
             res.json({ deployments: rows || [], total: rows?.length || 0 });
         });
@@ -1133,17 +1244,19 @@ app.get('/api/datadog/metrics/query', async (req, res) => {
 app.post('/api/metrics/dora/sync', expensiveLimiter, async (req, res) => {
   try {
     const userId = getUserId(req); if (!userId) return res.status(401).json({ error: 'Authentication required' });
-    const repository = (req.body?.repository || req.query?.repository || '').toString().trim();
+    const repository = sanitizeRepo(req.body?.repository || req.query?.repository) || '';
     const days = Number(req.body?.days || req.query?.days || 7) || 7;
 
-    if (!repository || !repository.includes('/')) {
+    if (!repository) {
       return res.status(400).json({ error: 'Missing or invalid repository (expected owner/repo)' });
     }
 
-    await ensureGithub(req); // sets up githubService with token if present
+    if (!shouldSync(userId, repository, 'dora')) {
+      return res.json({ success: true, skipped: true, reason: 'Recently synced' });
+    }
 
+    await ensureGithub(req);
     const result = await metricsService.syncWorkflowRunsFromGitHub(repository, days, userId);
-
     return res.json({ success: true, ...result });
   } catch (error) {
     console.error('DORA sync error:', error);
@@ -1203,6 +1316,36 @@ app.get('/api/monitor/sites', async (req, res) => {
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// POST /api/monitor/verify/send — send a 6-digit verification code to the alert email
+app.post('/api/monitor/verify/send', async (req, res) => {
+    try {
+        const userId = getUserId(req); if (!userId) return res.status(401).json({ error: 'Authentication required' });
+        const { url, email } = req.body;
+        if (!url || !email) return res.status(400).json({ error: 'url and email are required' });
+        // Basic email format check
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'Invalid email address' });
+        await monitor.sendVerificationCode(userId, email.trim(), url.trim());
+        res.json({ ok: true, message: `Verification code sent to ${email}` });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// POST /api/monitor/verify/confirm — confirm the code, then add the site
+app.post('/api/monitor/verify/confirm', async (req, res) => {
+    try {
+        const userId = getUserId(req); if (!userId) return res.status(401).json({ error: 'Authentication required' });
+        const isAdmin = req.session.user?.isAdmin === true;
+        const { url, email, code } = req.body;
+        if (!url || !email || !code) return res.status(400).json({ error: 'url, email, and code are required' });
+
+        // Verify the code first
+        await monitor.verifyCode(userId, email.trim(), url.trim(), code.trim());
+
+        // Code is valid — now add the site
+        const site = await monitor.addSite(userId, url.trim(), email.trim(), isAdmin);
+        res.json(site);
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
 // POST /api/monitor/sites — add a site to monitor
 app.post('/api/monitor/sites', async (req, res) => {
     try {
@@ -1226,29 +1369,59 @@ app.delete('/api/monitor/sites/:id', async (req, res) => {
 });
 
 // GET /api/monitor/sites/:id/checks?hours=24 — raw check history
-app.get('/api/monitor/sites/:id/checks', async (req, res) => {
+app.get('/api/monitor/sites/:id/checks', requireApiAuth, async (req, res) => {
     try {
-        const hours = parseInt(req.query.hours) || 24;
+        const hours = Math.min(parseInt(req.query.hours) || 24, 720); // cap at 30 days
         const checks = await monitor.getChecks(parseInt(req.params.id), hours);
         res.json(checks);
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // GET /api/monitor/sites/:id/stats?hours=24 — aggregated stats
-app.get('/api/monitor/sites/:id/stats', async (req, res) => {
+app.get('/api/monitor/sites/:id/stats', requireApiAuth, async (req, res) => {
     try {
-        const hours = parseInt(req.query.hours) || 24;
+        const hours = Math.min(parseInt(req.query.hours) || 24, 720);
         const stats = await monitor.getStats(parseInt(req.params.id), hours);
         res.json(stats);
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // GET /api/monitor/sites/:id/incidents — incident history
-app.get('/api/monitor/sites/:id/incidents', async (req, res) => {
+app.get('/api/monitor/sites/:id/incidents', requireApiAuth, async (req, res) => {
     try {
         const incidents = await monitor.getIncidents(parseInt(req.params.id));
         res.json(incidents);
     } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// --------------------------------------------------------------------------
+// IDS — Intrusion Detection System Routes (admin only)
+// --------------------------------------------------------------------------
+
+// GET /api/ids/events — recent anomaly/threat events
+app.get('/api/ids/events', requireApiAuth, (req, res) => {
+    if (!req.session.user?.isAdmin) return res.status(403).json({ error: 'Admin only' });
+    const limit = parseInt(req.query.limit) || 100;
+    res.json(ids.getRecentEvents(limit));
+});
+
+// GET /api/ids/blocked — currently blocked IPs
+app.get('/api/ids/blocked', requireApiAuth, (req, res) => {
+    if (!req.session.user?.isAdmin) return res.status(403).json({ error: 'Admin only' });
+    res.json(ids.getBlockedIPs());
+});
+
+// GET /api/ids/traffic — top IPs by request count
+app.get('/api/ids/traffic', requireApiAuth, (req, res) => {
+    if (!req.session.user?.isAdmin) return res.status(403).json({ error: 'Admin only' });
+    res.json(ids.getTrafficStats());
+});
+
+// DELETE /api/ids/blocked/:ip — manually unblock an IP
+app.delete('/api/ids/blocked/:ip', requireApiAuth, (req, res) => {
+    if (!req.session.user?.isAdmin) return res.status(403).json({ error: 'Admin only' });
+    ids.unblockIP(req.params.ip);
+    res.json({ ok: true });
 });
 
 // --------------------------------------------------------------------------
@@ -1319,30 +1492,23 @@ app.get('/api/visitor/stats/:siteId', requireAdmin, (req, res) => {
     const hours = parseInt(req.query.hours) || 24;
     const db = require('../services/database');
 
-    const since = `datetime('now', '-${hours} hours')`;
     const queries = [
-        // total pageviews
-        `SELECT COUNT(*) as total FROM visitor_events WHERE site_id=${siteId} AND datetime(timestamp) >= ${since}`,
-        // unique sessions
-        `SELECT COUNT(DISTINCT COALESCE(session_id, ip_hash)) as sessions FROM visitor_events WHERE site_id=${siteId} AND datetime(timestamp) >= ${since}`,
-        // unique IPs
-        `SELECT COUNT(DISTINCT ip_hash) as unique_ips FROM visitor_events WHERE site_id=${siteId} AND datetime(timestamp) >= ${since}`,
-        // top pages
-        `SELECT path, COUNT(*) as views FROM visitor_events WHERE site_id=${siteId} AND datetime(timestamp) >= ${since} GROUP BY path ORDER BY views DESC LIMIT 8`,
-        // top referrers
-        `SELECT referrer, COUNT(*) as count FROM visitor_events WHERE site_id=${siteId} AND referrer IS NOT NULL AND referrer != '' AND datetime(timestamp) >= ${since} GROUP BY referrer ORDER BY count DESC LIMIT 6`,
-        // hourly trend (last 24h bucketed by hour)
-        `SELECT strftime('%Y-%m-%dT%H:00', timestamp) as hour, COUNT(*) as views FROM visitor_events WHERE site_id=${siteId} AND datetime(timestamp) >= ${since} GROUP BY hour ORDER BY hour ASC`,
+        [`SELECT COUNT(*) as total FROM visitor_events WHERE site_id=$1 AND timestamp >= NOW() - ($2 * INTERVAL '1 hour')`, [siteId, hours]],
+        [`SELECT COUNT(DISTINCT COALESCE(session_id, ip_hash)) as sessions FROM visitor_events WHERE site_id=$1 AND timestamp >= NOW() - ($2 * INTERVAL '1 hour')`, [siteId, hours]],
+        [`SELECT COUNT(DISTINCT ip_hash) as unique_ips FROM visitor_events WHERE site_id=$1 AND timestamp >= NOW() - ($2 * INTERVAL '1 hour')`, [siteId, hours]],
+        [`SELECT path, COUNT(*) as views FROM visitor_events WHERE site_id=$1 AND timestamp >= NOW() - ($2 * INTERVAL '1 hour') GROUP BY path ORDER BY views DESC LIMIT 8`, [siteId, hours]],
+        [`SELECT referrer, COUNT(*) as count FROM visitor_events WHERE site_id=$1 AND referrer IS NOT NULL AND referrer != '' AND timestamp >= NOW() - ($2 * INTERVAL '1 hour') GROUP BY referrer ORDER BY count DESC LIMIT 6`, [siteId, hours]],
+        [`SELECT to_char(date_trunc('hour', timestamp), 'YYYY-MM-DD"T"HH24:00') as hour, COUNT(*) as views FROM visitor_events WHERE site_id=$1 AND timestamp >= NOW() - ($2 * INTERVAL '1 hour') GROUP BY hour ORDER BY hour ASC`, [siteId, hours]],
     ];
 
-    Promise.all(queries.map((q, i) => new Promise(resolve => {
+    Promise.all(queries.map(([ q, p ], i) => new Promise(resolve => {
         const method = i >= 3 ? 'all' : 'get';
-        db[method](q, [], (err, rows) => resolve(err ? (i >= 3 ? [] : {}) : rows));
+        db[method](q, p, (err, rows) => resolve(err ? (i >= 3 ? [] : {}) : rows));
     }))).then(([total, sessions, ips, topPages, topReferrers, hourly]) => {
         res.json({
-            totalViews: total?.total || 0,
-            uniqueSessions: sessions?.sessions || 0,
-            uniqueIPs: ips?.unique_ips || 0,
+            totalViews: parseInt(total?.total) || 0,
+            uniqueSessions: parseInt(sessions?.sessions) || 0,
+            uniqueIPs: parseInt(ips?.unique_ips) || 0,
             topPages: topPages || [],
             topReferrers: topReferrers || [],
             hourly: hourly || [],
@@ -1360,50 +1526,46 @@ app.get('/api/visitor/sites', requireAdmin, async (req, res) => {
 });
 
 // GET /api/analytics/summary — visitor stats for Settings panel
-app.get('/api/analytics/summary', (req, res) => {
+app.get('/api/analytics/summary', async (req, res) => {
     const db = require('../services/database');
-    const crypto = require('crypto');
 
     const queries = {
-        // Total views today
-        todayViews: `SELECT COUNT(*) as count FROM page_views WHERE date(timestamp) = date('now')`,
-        // Total views this week
-        weekViews: `SELECT COUNT(*) as count FROM page_views WHERE datetime(timestamp) >= datetime('now', '-7 days')`,
-        // Total views all time
-        totalViews: `SELECT COUNT(*) as count FROM page_views`,
-        // Unique sessions today
-        todaySessions: `SELECT COUNT(DISTINCT COALESCE(session_id, ip_hash)) as count FROM page_views WHERE date(timestamp) = date('now')`,
-        // Top pages (last 7 days)
-        topPages: `SELECT path, COUNT(*) as views FROM page_views WHERE datetime(timestamp) >= datetime('now', '-7 days') GROUP BY path ORDER BY views DESC LIMIT 6`,
-        // Views per day (last 7 days)
-        dailyViews: `SELECT date(timestamp) as day, COUNT(*) as views FROM page_views WHERE datetime(timestamp) >= datetime('now', '-7 days') GROUP BY day ORDER BY day ASC`,
-        // Total registered users
-        totalUsers: `SELECT COUNT(*) as count FROM users`,
+        todayViews:    [`SELECT COUNT(*) as count FROM page_views WHERE timestamp >= CURRENT_DATE`, []],
+        weekViews:     [`SELECT COUNT(*) as count FROM page_views WHERE timestamp >= NOW() - INTERVAL '7 days'`, []],
+        totalViews:    [`SELECT COUNT(*) as count FROM page_views`, []],
+        todaySessions: [`SELECT COUNT(DISTINCT COALESCE(session_id, ip_hash)) as count FROM page_views WHERE timestamp >= CURRENT_DATE`, []],
+        topPages:      [`SELECT path, COUNT(*) as views FROM page_views WHERE timestamp >= NOW() - INTERVAL '7 days' GROUP BY path ORDER BY views DESC LIMIT 6`, []],
+        dailyViews:    [`SELECT DATE(timestamp) as day, COUNT(*) as views FROM page_views WHERE timestamp >= NOW() - INTERVAL '7 days' GROUP BY day ORDER BY day ASC`, []],
+        totalUsers:    [`SELECT COUNT(*) as count FROM users`, []],
     };
 
-    const results = {};
-    const keys = Object.keys(queries);
-    let done = 0;
+    try {
+        const keys = Object.keys(queries);
+        const results = await Promise.all(keys.map(key => {
+            const method = key === 'topPages' || key === 'dailyViews' ? 'all' : 'get';
+            const [sql, params] = queries[key];
+            return new Promise((resolve, reject) => {
+                db[method](sql, params, (err, rows) => err ? reject(err) : resolve({ key, rows }));
+            });
+        }));
 
-    for (const key of keys) {
-        const method = key === 'topPages' || key === 'dailyViews' ? 'all' : 'get';
-        db[method](queries[key], [], (err, rows) => {
-            results[key] = rows;
-            if (++done === keys.length) {
-                // Live connections from Socket.io
-                const liveConnections = io.engine?.clientsCount || 0;
-                res.json({
-                    todayViews:    results.todayViews?.count || 0,
-                    weekViews:     results.weekViews?.count || 0,
-                    totalViews:    results.totalViews?.count || 0,
-                    todaySessions: results.todaySessions?.count || 0,
-                    liveNow:       liveConnections,
-                    totalUsers:    results.totalUsers?.count || 0,
-                    topPages:      results.topPages || [],
-                    dailyViews:    results.dailyViews || [],
-                });
-            }
+        const data = {};
+        for (const { key, rows } of results) data[key] = rows;
+
+        const liveConnections = io.engine?.clientsCount || 0;
+        res.json({
+            todayViews:    parseInt(data.todayViews?.count) || 0,
+            weekViews:     parseInt(data.weekViews?.count) || 0,
+            totalViews:    parseInt(data.totalViews?.count) || 0,
+            todaySessions: parseInt(data.todaySessions?.count) || 0,
+            liveNow:       liveConnections,
+            totalUsers:    parseInt(data.totalUsers?.count) || 0,
+            topPages:      data.topPages || [],
+            dailyViews:    data.dailyViews || [],
         });
+    } catch (err) {
+        console.error('[analytics/summary] error:', err.message);
+        res.status(500).json({ error: 'Failed to load analytics' });
     }
 });
 
@@ -1469,26 +1631,35 @@ if (process.env.GITHUB_WEBHOOK_SECRET && process.env.GITHUB_WEBHOOK_SECRET.lengt
 // Initialize database and start server
 async function startServer() {
     try {
-        const dbPath = process.env.DATABASE_PATH || './devops.sqlite';
         console.log('\n🔍 Validating environment variables...');
 
         // Resolve admin login from GITHUB_TOKEN before anything else
         await resolveAdminLogin();
 
-        // Initialize database
-        await initializeDatabase(dbPath);
+        // Initialize database schema on Neon PostgreSQL
+        await initializeDatabase();
+
+        // Initialize services AFTER DB is ready
+        analytics = new AnalyticsService();
+        webhookService = new GitHubWebhookService();
+        realtimeService = new RealtimeStreamService(io);
 
         // Start background uptime monitor
         monitor.startMonitor();
 
+        // Prune expired sessions daily (keep Neon storage clean)
+        setInterval(() => {
+            const db = require('../services/database');
+            db.run(`DELETE FROM session WHERE expire < NOW()`, [], () => {});
+        }, 24 * 60 * 60 * 1000);
+
         // Start server
         server.listen(PORT, () => {
-            console.log(`\n🚀 DevOps Platform (Supabase + GitHub) running on http://localhost:${PORT}`);
+            console.log(`\n🚀 PipelineXR running on http://localhost:${PORT}`);
             console.log(`📊 Pipeline Monitoring: Active`);
             console.log(`📡 Real-time Streaming: Active`);
             console.log(`🔗 Webhook Endpoint: POST http://localhost:${PORT}/api/github/webhook`);
-            console.log(`✅ Webhook endpoint ready at /api/github/webhook`);
-            console.log(`✅ Using DATABASE_PATH: ${dbPath}`);
+            console.log(`✅ Database: Neon PostgreSQL`);
         });
     } catch (error) {
         console.error('❌ Failed to start server:', error);
@@ -1499,17 +1670,19 @@ async function startServer() {
 // Start the server
 startServer();
 
-// Graceful shutdown
-process.on('SIGINT', () => {
+// Graceful shutdown — handles both Ctrl+C (SIGINT) and Render's shutdown signal (SIGTERM)
+const shutdown = () => {
     console.log('\n🛑 Shutting down gracefully...');
-    try {
-        if (typeof analytics !== 'undefined' && analytics.close) analytics.close();
-        if (typeof webhookService !== 'undefined' && webhookService.close) webhookService.close();
-    } catch (err) {
-        console.error('Error during database closure:', err);
-    }
-    server.close(() => {
+    server.close(async () => {
+        try {
+            const db = require('../services/database');
+            await db.end(); // close pg pool
+        } catch (e) { /* ignore */ }
         console.log('✅ Server closed');
         process.exit(0);
     });
-});
+    // Force exit after 10s if server doesn't close cleanly
+    setTimeout(() => process.exit(1), 10000);
+};
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);

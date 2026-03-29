@@ -1,8 +1,12 @@
 import axios from 'axios';
 
-const API_BASE = '/api';
+// In production (Netlify), VITE_API_BASE_URL is set to the Railway backend URL.
+// In development, it's empty and all requests go through Vite's proxy to localhost:3001.
+const API_ORIGIN = import.meta.env.VITE_API_BASE_URL || '';
+const API_BASE = `${API_ORIGIN}/api`;
 
 const apiInstance = axios.create({
+    baseURL: API_ORIGIN,
     withCredentials: true,
 });
 
@@ -117,6 +121,14 @@ export const api = {
     getMonitorChecks: (id, hours = 24) => get(`${API_BASE}/monitor/sites/${id}/checks?hours=${hours}`),
     getMonitorStats: (id, hours = 24) => get(`${API_BASE}/monitor/sites/${id}/stats?hours=${hours}`),
     getMonitorIncidents: (id) => get(`${API_BASE}/monitor/sites/${id}/incidents`),
+    sendMonitorVerification: (url, email) => apiInstance.post(`${API_BASE}/monitor/verify/send`, { url, email }).then(r => r.data),
+    confirmMonitorVerification: (url, email, code) => apiInstance.post(`${API_BASE}/monitor/verify/confirm`, { url, email, code }).then(r => r.data),
+
+    // IDS — Intrusion Detection (admin only)
+    getIdsEvents: (limit = 100) => get(`${API_BASE}/ids/events?limit=${limit}`),
+    getIdsBlocked: () => get(`${API_BASE}/ids/blocked`),
+    getIdsTraffic: () => get(`${API_BASE}/ids/traffic`),
+    unblockIp: (ip) => apiInstance.delete(`${API_BASE}/ids/blocked/${encodeURIComponent(ip)}`).then(r => r.data),
 
     // Visitor Analytics (admin only)
     getVisitorSites: () => get(`${API_BASE}/visitor/sites`),

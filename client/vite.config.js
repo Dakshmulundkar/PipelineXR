@@ -34,5 +34,10 @@ export default defineConfig({
         }
       }
     }
+  },
+  // In production (Netlify), VITE_API_BASE_URL points to the Railway backend.
+  // The client/src/services/api.js reads import.meta.env.VITE_API_BASE_URL at build time.
+  define: {
+    __API_BASE__: JSON.stringify(process.env.VITE_API_BASE_URL || ''),
   }
 })

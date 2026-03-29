@@ -1,5 +1,5 @@
 {
-  "name": "devops-hakathon",
+  "name": "pipelinexr",
   "version": "1.0.0",
   "description": "PipelineXR - Comprehensive DevOps Analytics Dashboard",
   "main": "server/index.js",
@@ -17,7 +17,8 @@
     "full-deploy": "npm run deploy && npm run test",
     "webhook:setup": "node setup-github-webhook.js",
     "webhook:test": "node test-github-webhook.js",
-    "install:trivy": "curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b ./"
+    "install:trivy": "curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b ./bin",
+    "scan-repos": "node scripts/scan-repos.js"
   },
   "keywords": [
     "devops",
@@ -32,7 +33,7 @@
   "dependencies": {
     "@datadog/datadog-api-client": "^1.53.0",
     "@google/generative-ai": "^0.24.1",
-    "connect-sqlite3": "^0.9.16",
+    "connect-pg-simple": "^10.0.0",
     "cors": "^2.8.6",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
@@ -43,9 +44,10 @@
     "node-cron": "^4.2.1",
     "nodemailer": "^8.0.3",
     "octokit": "^5.0.5",
-    "puppeteer": "^24.38.0",
-    "socket.io": "^4.8.3",
-    "sqlite3": "^5.0.2"
+    "pdfkit": "^0.15.0",
+    "pg": "^8.20.0",
+    "resend": "^6.9.4",
+    "socket.io": "^4.8.3"
   },
   "engines": {
     "node": ">=14.0.0",

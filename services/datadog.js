@@ -169,7 +169,6 @@ async function queryLocalMetric(metricKey, from, to, repository = null, userId =
     const fromDate = new Date(from * 1000).toISOString();
     const toDate   = new Date(to   * 1000).toISOString();
 
-    // userId is required — never return cross-user data
     if (!userId) return [];
 
     return new Promise((resolve) => {
@@ -185,12 +184,10 @@ async function queryLocalMetric(metricKey, from, to, repository = null, userId =
                    ${repository ? 'AND repository = ?' : ''}
                    ${userFilter}
                    GROUP BY day ORDER BY day`;
-            params = repository
-                ? [fromDate, toDate, conclusion, repository, userId]
-                : [fromDate, toDate, conclusion, userId];
+            params = repository ? [fromDate, toDate, conclusion, repository, userId] : [fromDate, toDate, conclusion, userId];
 
         } else if (metricKey === 'build.duration_seconds') {
-            sql = `SELECT DATE(run_started_at) as day, ROUND(AVG(duration_seconds), 1) as value
+            sql = `SELECT DATE(run_started_at) as day, ROUND(AVG(duration_seconds)::numeric, 1) as value
                    FROM workflow_runs
                    WHERE run_started_at >= ? AND run_started_at <= ?
                    AND duration_seconds IS NOT NULL
@@ -208,9 +205,7 @@ async function queryLocalMetric(metricKey, from, to, repository = null, userId =
                    ${repository ? 'AND repository = ?' : ''}
                    ${userFilter}
                    GROUP BY day ORDER BY day`;
-            params = repository
-                ? [fromDate, toDate, sev, repository, userId]
-                : [fromDate, toDate, sev, userId];
+            params = repository ? [fromDate, toDate, sev, repository, userId] : [fromDate, toDate, sev, userId];
 
         } else if (metricKey === 'dora.success_rate') {
             sql = `SELECT DATE(run_started_at) as day,

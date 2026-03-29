@@ -1,0 +1,16 @@
+{
+  "build": {
+    "builder": "NIXPACKS"
+  },
+  "deploy": {
+    "startCommand": "npm run install:trivy && node server/index.js",
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 3
+  },
+  "cron": [
+    {
+      "command": "node scripts/scan-repos.js",
+      "schedule": "0 */6 * * *"
+    }
+  ]
+}

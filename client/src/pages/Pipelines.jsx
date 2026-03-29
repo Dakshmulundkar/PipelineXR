@@ -8,6 +8,7 @@ import {
 } from 'chart.js';
 import { api } from '../services/api';
 import { useAppContext } from '../contexts/AppContext';
+import { cacheGet, cacheSet } from '../services/cache';
 import PipelineStageBar from '../components/PipelineStageBar';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
@@ -131,17 +132,32 @@ const Pipelines = () => {
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
 
-    const load = async () => {
+    const load = async (force = false) => {
         if (!selectedRepo) {
             setRuns([]);
             setLoading(false);
             setRefreshing(false);
             return;
         }
-        setRefreshing(true);
+        // Show cache immediately
+        if (!force) {
+            const cached = cacheGet('pipelines', selectedRepo);
+            if (cached) {
+                setRuns(cached.data);
+                setLoading(false);
+                if (!cached.stale) return; // fresh — don't refetch
+                setRefreshing(true);       // stale — refresh silently
+            } else {
+                setLoading(true);
+            }
+        } else {
+            setRefreshing(true);
+        }
         try {
             const data = await api.getPipelineRuns(20, selectedRepo);
-            setRuns(Array.isArray(data) ? data : []);
+            const runs = Array.isArray(data) ? data : [];
+            setRuns(runs);
+            cacheSet('pipelines', selectedRepo, runs);
         } catch {
             setRuns([]);
         } finally {
@@ -158,14 +174,14 @@ const Pipelines = () => {
         } catch (e) {
             console.warn('Pipeline sync failed, loading from DB anyway:', e.message);
         }
-        load();
+        load(true);
     };
 
-    useEffect(() => { syncAndLoad(); }, [selectedRepo]); // eslint-disable-line
+    useEffect(() => { load(); }, [selectedRepo]); // eslint-disable-line
 
     // 30s polling fallback
     useEffect(() => {
-        const interval = setInterval(() => load(), 30000);
+        const interval = setInterval(() => load(false), 30000);
         return () => clearInterval(interval);
     }, [selectedRepo]); // eslint-disable-line
 
@@ -225,8 +241,7 @@ const Pipelines = () => {
                     <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.4)', marginTop: 4 }}>Real-time monitoring of automated builds and security gates</p>
                 </div>
                 <div style={{ display: 'flex', gap: 12 }}>
-                    <button onClick={syncAndLoad} style={{
-                        background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
+                    <button onClick={syncAndLoad} style={{                        background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
                         color: 'rgba(255,255,255,0.6)', padding: '10px 16px', borderRadius: 12,
                         fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8,
                         cursor: 'pointer', transition: 'all 0.2s'

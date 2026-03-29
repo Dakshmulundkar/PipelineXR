@@ -8,7 +8,6 @@ services:
     volumes:
       - ./server:/app/server
       - ./public:/app/public
-      - ./devops.sqlite:/app/devops.sqlite
       # Required for Trivy: gives the backend access to the host Docker daemon
       # so it can spawn aquasec/trivy containers without a Trivy binary installed.
       - /var/run/docker.sock:/var/run/docker.sock

@@ -215,7 +215,12 @@ function VisitorAnalyticsTab() {
 
 const SettingsPanel = ({ open, onClose }) => {
     const { user, isAdmin } = useAppContext();
-    const [tab, setTab] = useState(() => isAdmin ? 'analytics' : 'plans');
+    const [tab, setTab] = useState('');
+
+    // Set correct default tab once isAdmin is known
+    useEffect(() => {
+        setTab(isAdmin ? 'analytics' : 'plans');
+    }, [isAdmin]);
     const [stats, setStats] = useState(null);
     const [loading, setLoading] = useState(false);
 
@@ -473,24 +478,79 @@ const SettingsPanel = ({ open, onClose }) => {
 
                     {/* ── About Tab ── */}
                     {tab === 'about' && (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                            <div style={{ padding: 20, background: 'linear-gradient(135deg, rgba(59,130,246,0.08), rgba(124,58,237,0.08))', border: '1px solid rgba(59,130,246,0.15)', borderRadius: 20, textAlign: 'center' }}>
-                                <div style={{ fontSize: 32, fontWeight: 900, background: 'linear-gradient(135deg, #3B82F6, #7C3AED)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>PipelineXR</div>
-                                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.3)', marginTop: 4 }}>v2.4.0-pro · DevOps Intelligence Platform</div>
-                            </div>
-                            {[
-                                { label: 'Version', value: 'v2.4.0-pro' },
-                                { label: 'Runtime', value: 'Node.js + Express' },
-                                { label: 'Database', value: 'SQLite (local)' },
-                                { label: 'Frontend', value: 'React + Vite' },
-                                { label: 'Security', value: 'Trivy + Gemini AI' },
-                                { label: 'Metrics', value: 'Datadog RUM' },
-                            ].map(r => (
-                                <div key={r.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'rgba(255,255,255,0.02)', borderRadius: 10, border: '1px solid rgba(255,255,255,0.05)' }}>
-                                    <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>{r.label}</span>
-                                    <span style={{ fontSize: 12, fontWeight: 600, color: '#fff' }}>{r.value}</span>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                            {/* Hero */}
+                            <div style={{
+                                position: 'relative', overflow: 'hidden',
+                                padding: '28px 24px', borderRadius: 20,
+                                background: 'linear-gradient(135deg, rgba(59,130,246,0.12) 0%, rgba(124,58,237,0.12) 100%)',
+                                border: '1px solid rgba(99,102,241,0.2)',
+                            }}>
+                                <div style={{ position: 'absolute', top: -30, right: -30, width: 120, height: 120, borderRadius: '50%', background: 'rgba(124,58,237,0.15)', filter: 'blur(40px)', pointerEvents: 'none' }} />
+                                <div style={{ position: 'absolute', bottom: -20, left: -20, width: 80, height: 80, borderRadius: '50%', background: 'rgba(59,130,246,0.15)', filter: 'blur(30px)', pointerEvents: 'none' }} />
+                                <div style={{ position: 'relative' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+                                        <div style={{
+                                            width: 44, height: 44, borderRadius: 14,
+                                            background: 'linear-gradient(135deg, #3B82F6, #7C3AED)',
+                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                            fontSize: 16, fontWeight: 900, color: '#fff',
+                                            boxShadow: '0 4px 16px rgba(124,58,237,0.4)',
+                                        }}>PX</div>
+                                        <div>
+                                            <div style={{ fontSize: 20, fontWeight: 900, color: '#fff', letterSpacing: '-0.03em' }}>PipelineXR</div>
+                                            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginTop: 1, letterSpacing: '0.06em' }}>DEVOPS INTELLIGENCE PLATFORM</div>
+                                        </div>
+                                        <div style={{ marginLeft: 'auto', fontSize: 10, fontWeight: 700, color: '#A78BFA', background: 'rgba(167,139,250,0.12)', border: '1px solid rgba(167,139,250,0.25)', padding: '4px 10px', borderRadius: 8 }}>v2.4.0</div>
+                                    </div>
+                                    <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)', lineHeight: 1.75, margin: 0 }}>
+                                        PipelineXR gives engineering teams complete visibility into their software delivery lifecycle — from the moment code is pushed to the moment it ships in production.
+                                    </p>
                                 </div>
-                            ))}
+                            </div>
+
+                            {/* Mission */}
+                            <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 16, padding: '18px 20px' }}>
+                                <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.25)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 10 }}>Our Mission</div>
+                                <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)', lineHeight: 1.8, margin: 0 }}>
+                                    We believe every developer deserves real-time insight into their pipelines without the complexity of stitching together a dozen tools. PipelineXR was built to eliminate that friction — bringing security scanning, DORA metrics, uptime monitoring, and audit reports into one unified workspace.
+                                </p>
+                            </div>
+
+                            {/* Services */}
+                            <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 16, overflow: 'hidden' }}>
+                                <div style={{ padding: '12px 20px', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.25)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>What We Provide</div>
+                                {[
+                                    { title: 'Pipeline Monitoring',    desc: 'Live tracking of every GitHub Actions workflow run, job, and step with automated risk scoring on each deployment.' },
+                                    { title: 'Security Intelligence',  desc: 'Continuous vulnerability scanning via Trivy, Dependabot, npm audit, and license analysis — all in one posture score.' },
+                                    { title: 'DORA Metrics',           desc: 'Automated measurement of deployment frequency, lead time, change failure rate, and mean time to recovery.' },
+                                    { title: 'Uptime Monitoring',      desc: 'Round-the-clock availability checks for your web properties with instant email alerts on downtime or recovery.' },
+                                    { title: 'Visitor Analytics',      desc: 'Lightweight, privacy-first beacon tracking — see who uses your product, which pages they visit, and where they come from.' },
+                                ].map((s, i, arr) => (
+                                    <div key={s.title} style={{
+                                        padding: '13px 20px',
+                                        borderBottom: i < arr.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none',
+                                    }}>
+                                        <div style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,0.75)', marginBottom: 4 }}>{s.title}</div>
+                                        <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.38)', lineHeight: 1.65 }}>{s.desc}</div>
+                                    </div>
+                                ))}
+                            </div>
+
+                            {/* Contact */}
+                            <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 16, padding: '18px 20px' }}>
+                                <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.25)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 10 }}>Contact</div>
+                                <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)', lineHeight: 1.75, margin: '0 0 12px' }}>
+                                    Have a question, found a bug, or want to collaborate? Reach out — we read every message.
+                                </p>
+                                <a href="mailto:bydaksh2806@gmail.com" style={{ fontSize: 13, color: '#60A5FA', textDecoration: 'none', fontWeight: 500 }}>
+                                    bydaksh2806@gmail.com
+                                </a>
+                            </div>
+
+                            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.15)', textAlign: 'center', paddingBottom: 4 }}>
+                                © 2025 PipelineXR · Built for developers, by developers
+                            </div>
                         </div>
                     )}
                 </div>

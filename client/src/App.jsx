@@ -12,65 +12,75 @@ import Login from './pages/Login';
 import AuthCallback from './pages/AuthCallback';
 import { AppProvider } from './contexts/AppContext';
 
-const ProtectedRoute = ({ children, isAuthenticated }) => {
-  const location = useLocation();
-  if (!isAuthenticated) {
-    return <Navigate to="/login" replace state={{ from: location }} />;
-  }
-  return (
-    <Layout>
-      <ErrorBoundary>
-        {children}
-      </ErrorBoundary>
-    </Layout>
-  );
+// Keeps all pages mounted so they load in background and don't re-fetch on nav.
+// Only the active page is visible; others are hidden via CSS (display:none).
+const KeepAliveRoutes = ({ isAuthenticated }) => {
+    const location = useLocation();
+    const path = location.pathname;
+
+    if (!isAuthenticated) return null;
+
+    const pages = [
+        { route: '/',           Component: Dashboard   },
+        { route: '/pipelines',  Component: Pipelines   },
+        { route: '/security',   Component: Security    },
+        { route: '/metrics',    Component: Metrics     },
+        { route: '/reports',    Component: Reports     },
+        { route: '/monitoring', Component: Monitoring  },
+    ];
+
+    return (
+        <Layout>
+            {pages.map(({ route, Component }) => (
+                <div
+                    key={route}
+                    style={{ display: path === route ? 'block' : 'none', height: '100%' }}
+                >
+                    <ErrorBoundary>
+                        <Component />
+                    </ErrorBoundary>
+                </div>
+            ))}
+        </Layout>
+    );
 };
 
 function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(
-    localStorage.getItem('sf_auth') === 'true'
-  );
+    const [isAuthenticated, setIsAuthenticated] = useState(
+        localStorage.getItem('sf_auth') === 'true'
+    );
 
-  useEffect(() => {
-    const handleStorage = () => setIsAuthenticated(localStorage.getItem('sf_auth') === 'true');
-    window.addEventListener('storage', handleStorage);
-    return () => window.removeEventListener('storage', handleStorage);
-  }, []);
+    useEffect(() => {
+        const handleStorage = () => setIsAuthenticated(localStorage.getItem('sf_auth') === 'true');
+        window.addEventListener('storage', handleStorage);
+        return () => window.removeEventListener('storage', handleStorage);
+    }, []);
 
-  return (
-    <BrowserRouter>
-      <div className="fixed inset-0 z-0 pointer-events-none">
-        <div className="absolute inset-0 bg-[#000000]" />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_15%_50%,rgba(58,130,246,0.08),transparent_40%),radial-gradient(circle_at_85%_30%,rgba(168,85,247,0.06),transparent_40%)]" />
-      </div>
+    return (
+        <BrowserRouter>
+            <div className="fixed inset-0 z-0 pointer-events-none">
+                <div className="absolute inset-0 bg-[#000000]" />
+                <div className="absolute inset-0 bg-[radial-gradient(circle_at_15%_50%,rgba(58,130,246,0.08),transparent_40%),radial-gradient(circle_at_85%_30%,rgba(168,85,247,0.06),transparent_40%)]" />
+            </div>
 
-      <div className="relative z-10 h-screen w-full" style={{ fontFamily: "'-apple-system', 'BlinkMacSystemFont', 'SF Pro Text', 'Segoe UI', 'Roboto', sans-serif" }}>
-        <AppProvider isAuthenticated={isAuthenticated}>
-          <Routes>
-            {/* Public Routes */}
-            <Route path="/login" element={isAuthenticated ? <Navigate to="/" replace /> : <Login />} />
-            <Route path="/auth/callback" element={<AuthCallback onLogin={() => setIsAuthenticated(true)} />} />
+            <div className="relative z-10 h-screen w-full" style={{ fontFamily: "'-apple-system', 'BlinkMacSystemFont', 'SF Pro Text', 'Segoe UI', 'Roboto', sans-serif" }}>
+                <AppProvider isAuthenticated={isAuthenticated}>
+                    <Routes>
+                        {/* Public */}
+                        <Route path="/login" element={isAuthenticated ? <Navigate to="/" replace /> : <Login />} />
+                        <Route path="/auth/callback" element={<AuthCallback onLogin={() => setIsAuthenticated(true)} />} />
 
-            {/* Protected Routes — each page wrapped in ErrorBoundary */}
-            <Route path="/" element={<ProtectedRoute isAuthenticated={isAuthenticated}><Dashboard /></ProtectedRoute>} />
-            <Route path="/pipelines" element={<ProtectedRoute isAuthenticated={isAuthenticated}><Pipelines /></ProtectedRoute>} />
-            <Route path="/security" element={<ProtectedRoute isAuthenticated={isAuthenticated}><Security /></ProtectedRoute>} />
-            <Route path="/metrics" element={<ProtectedRoute isAuthenticated={isAuthenticated}><Metrics /></ProtectedRoute>} />
-            <Route path="/reports" element={<ProtectedRoute isAuthenticated={isAuthenticated}><Reports /></ProtectedRoute>} />
-            <Route path="/monitoring" element={<ProtectedRoute isAuthenticated={isAuthenticated}><Monitoring /></ProtectedRoute>} />
-
-            <Route path="*" element={
-              <div className="flex flex-col items-center justify-center h-full py-20 animate-fade-in">
-                <div className="text-6xl mb-4">🚧</div>
-                <div className="text-2xl font-bold text-white mb-2 tracking-tight">Page Not Found</div>
-                <div className="text-sm text-slate-400">The requested view does not exist.</div>
-              </div>
-            } />
-          </Routes>
-        </AppProvider>
-      </div>
-    </BrowserRouter>
-  );
+                        {/* All protected pages — kept alive, toggled by CSS */}
+                        <Route path="/*" element={
+                            isAuthenticated
+                                ? <KeepAliveRoutes isAuthenticated={isAuthenticated} />
+                                : <Navigate to="/login" replace />
+                        } />
+                    </Routes>
+                </AppProvider>
+            </div>
+        </BrowserRouter>
+    );
 }
 
 export default App;

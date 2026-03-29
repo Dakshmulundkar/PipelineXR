@@ -79,21 +79,23 @@ export const AppProvider = ({ children, isAuthenticated }) => {
     const startScan = useCallback(async (repo) => {
         if (!repo) return;
 
-        // Already scanning this repo — don't double-trigger
-        if (scanState.isScanning && scanState.repoScanned === repo) return;
+        setScanState(prev => {
+            // Already scanning this repo — don't double-trigger
+            if (prev.isScanning && prev.repoScanned === repo) return prev;
+            return {
+                ...prev,
+                isScanning: true,
+                repoScanned: repo,
+                results: null,
+                security_metrics: null,
+                risk_score: null,
+                risk_level: null,
+                engine: null,
+                error: null,
+            };
+        });
 
-        setScanState(prev => ({
-            ...prev,
-            isScanning: true,
-            repoScanned: repo,
-            results: null,
-            security_metrics: null,
-            risk_score: null,
-            risk_level: null,
-            engine: null,
-            error: null,
-        }));
-
+        // Read current state after the set — use a ref to avoid stale closure
         try {
             const target = `https://github.com/${repo}`;
             const res = await api.triggerTrivyScan({
@@ -120,7 +122,7 @@ export const AppProvider = ({ children, isAuthenticated }) => {
                 error: err.response?.data?.error || err.message,
             }));
         }
-    }, [scanState.isScanning, scanState.repoScanned]);
+    }, []); // no deps — uses setScanState functional form to avoid stale state
 
     return (
         <AppContext.Provider value={{

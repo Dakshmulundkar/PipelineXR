@@ -29,7 +29,13 @@ const Reports = () => {
             const raw = await api.getTestReports(repo || null);
             const enriched = Array.isArray(raw) ? raw.map(r => ({
                 ...r,
-                pass_rate: r.total_tests > 0 ? Math.round((r.passed / r.total_tests) * 100) : 0
+                run_id: r.run_id,
+                total_tests: parseInt(r.total_tests) || 0,
+                passed: parseInt(r.passed) || 0,
+                failed: parseInt(r.failed) || 0,
+                pass_rate: parseInt(r.total_tests) > 0
+                    ? Math.round((parseInt(r.passed) / parseInt(r.total_tests)) * 100)
+                    : 0
             })) : [];
             setData(enriched);
         } catch {
@@ -101,7 +107,7 @@ const Reports = () => {
     const sorted = [...data].sort((a, b) => new Date(a.latest_run || 0) - new Date(b.latest_run || 0));
     const trendLabels = sorted.map(r => r.latest_run
         ? new Date(r.latest_run).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-        : `#${r.run_id}`
+        : `#${String(r.run_id).slice(-6)}`
     );
     const passRateTrend = sorted.map(r => r.pass_rate || 0);
     const stepsTrend    = sorted.map(r => r.total_tests || 0);
@@ -304,7 +310,7 @@ const Reports = () => {
                             <tr key={`${r.run_id}-${r.suite_name}`}
                                 style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', transition: 'all 0.2s' }}
                                 className="hover:bg-white/[0.02] group">
-                                <td style={{ padding: '16px 24px', fontSize: 13, fontWeight: 700, color: 'rgba(255,255,255,0.3)', fontFamily: 'monospace' }}>#{r.run_id}</td>
+                                <td style={{ padding: '16px 24px', fontSize: 13, fontWeight: 700, color: 'rgba(255,255,255,0.3)', fontFamily: 'monospace' }}>#{String(r.run_id).slice(-6)}</td>
                                 <td style={{ padding: '16px 24px', fontSize: 14, fontWeight: 700, color: '#fff' }}>{r.suite_name}</td>
                                 <td style={{ padding: '16px 24px', fontSize: 13, color: 'rgba(255,255,255,0.5)', fontWeight: 600 }}>{r.total_tests} steps</td>
                                 <td style={{ padding: '16px 24px' }}>

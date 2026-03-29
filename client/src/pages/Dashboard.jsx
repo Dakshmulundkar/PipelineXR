@@ -7,6 +7,7 @@ import {
 } from 'chart.js';
 import { api } from '../services/api';
 import { useAppContext } from '../contexts/AppContext';
+import { cacheGet, cacheSet } from '../services/cache';
 import StatCard from '../components/StatCard';
 import ChartCard from '../components/ChartCard';
 
@@ -154,6 +155,7 @@ const Dashboard = () => {
     const [metrics, setMetrics] = useState(null);
     const [prevMetrics, setPrevMetrics] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false); // background refresh indicator
     const [lastSync, setLastSync] = useState(new Date());
     const [secSummary, setSecSummary] = useState(null);
     const [chartData, setChartData] = useState({ dep: null, sr: null });
@@ -164,68 +166,76 @@ const Dashboard = () => {
         return () => { mounted.current = false; };
     }, []);
 
-    useEffect(() => {
-        if (!selectedRepo) {
-            setTimeout(() => setLoading(false), 0);
-            return;
+    const applyData = (curr, full, days) => {
+        setMetrics(curr);
+        setLastSync(new Date());
+        if (full?.rawRuns) {
+            const cutoff = new Date();
+            cutoff.setDate(cutoff.getDate() - days);
+            const prevRuns = full.rawRuns.filter(r => new Date(r.run_started_at) < cutoff);
+            const prevTotal = prevRuns.length;
+            const prevSuccess = prevRuns.filter(r => r.conclusion === 'success').length;
+            const prevSuccessRate = prevTotal > 0 ? Math.round((prevSuccess / prevTotal) * 100) : 0;
+            const prevDurations = prevRuns.map(r => (new Date(r.updated_at) - new Date(r.run_started_at)) / 60000).filter(v => v > 0);
+            const prevAvgDuration = prevDurations.length ? Math.round((prevDurations.reduce((a, b) => a + b, 0) / prevDurations.length) * 10) / 10 : 0;
+            const prevDeployFreq = days > 0 ? Math.round((prevSuccess / days) * 10) / 10 : 0;
+            const prevWaits = prevRuns.map(r => (new Date(r.run_started_at) - new Date(r.created_at)) / 3600000).filter(v => v >= 0);
+            const prevAvgWait = prevWaits.length ? Math.round((prevWaits.reduce((a, b) => a + b, 0) / prevWaits.length) * 100) / 100 : 0;
+            setPrevMetrics({ deploymentFrequency: prevDeployFreq, successRate: prevSuccessRate, avgBuildDuration: prevAvgDuration, avgWaitTime: prevAvgWait });
+        } else {
+            setPrevMetrics(null);
         }
-        setLoading(true);
+        if (curr?.rawRuns) setChartData(buildChartData(curr.rawRuns, range));
+        else setChartData({ dep: null, sr: null });
+    };
 
+    const fetchData = async (isManual = false) => {
+        if (!selectedRepo) { setLoading(false); return; }
         const days = range === '24h' ? 1 : range === '7d' ? 7 : 30;
 
-        // Fetch current period + double window (for previous period comparison) in parallel
-        Promise.all([
-            api.getDoraMetrics(selectedRepo, range),
-            api.getDoraMetrics(selectedRepo, days * 2),
-        ])
-            .then(([curr, full]) => {
-                if (!mounted.current) return;
-                setMetrics(curr);
-                setLastSync(new Date());
+        // On manual refresh, show spinner and skip cache
+        if (isManual) setRefreshing(true);
 
-                // Split the double window: runs older than `days` ago = previous period
-                if (full?.rawRuns) {
-                    const cutoff = new Date();
-                    cutoff.setDate(cutoff.getDate() - days);
-                    const prevRuns = full.rawRuns.filter(r => new Date(r.run_started_at) < cutoff);
-                    const prevTotal = prevRuns.length;
-                    const prevSuccess = prevRuns.filter(r => r.conclusion === 'success').length;
-                    const prevSuccessRate = prevTotal > 0 ? Math.round((prevSuccess / prevTotal) * 100) : 0;
-                    const prevDurations = prevRuns
-                        .map(r => (new Date(r.updated_at) - new Date(r.run_started_at)) / 60000)
-                        .filter(v => v > 0);
-                    const prevAvgDuration = prevDurations.length
-                        ? Math.round((prevDurations.reduce((a, b) => a + b, 0) / prevDurations.length) * 10) / 10
-                        : 0;
-                    const prevDeployFreq = days > 0
-                        ? Math.round((prevSuccess / days) * 10) / 10
-                        : 0;
-                    const prevWaits = prevRuns
-                        .map(r => (new Date(r.run_started_at) - new Date(r.created_at)) / 3600000)
-                        .filter(v => v >= 0);
-                    const prevAvgWait = prevWaits.length
-                        ? Math.round((prevWaits.reduce((a, b) => a + b, 0) / prevWaits.length) * 100) / 100
-                        : 0;
-                    setPrevMetrics({ deploymentFrequency: prevDeployFreq, successRate: prevSuccessRate, avgBuildDuration: prevAvgDuration, avgWaitTime: prevAvgWait });
-                } else {
-                    setPrevMetrics(null);
-                }
+        try {
+            const [curr, full] = await Promise.all([
+                api.getDoraMetrics(selectedRepo, range),
+                api.getDoraMetrics(selectedRepo, days * 2),
+            ]);
+            if (!mounted.current) return;
+            // Cache the result
+            cacheSet('dashboard', selectedRepo, { curr, full }, range);
+            applyData(curr, full, days);
 
-                if (curr?.rawRuns) {
-                    setChartData(buildChartData(curr.rawRuns, range));
-                } else {
-                    setChartData({ dep: null, sr: null });
-                }
-            })
-            .catch(() => {
-                if (mounted.current) { setMetrics(null); setPrevMetrics(null); setChartData({ dep: null, sr: null }); }
-            })
-            .finally(() => { if (mounted.current) setLoading(false); });
+            api.getSecuritySummary(selectedRepo)
+                .then(d => { if (mounted.current) { setSecSummary(d); cacheSet('dashboard_sec', selectedRepo, d); } })
+                .catch(() => {});
+        } catch {
+            if (mounted.current) { setMetrics(null); setPrevMetrics(null); setChartData({ dep: null, sr: null }); }
+        } finally {
+            if (mounted.current) { setLoading(false); setRefreshing(false); }
+        }
+    };
 
-        api.getSecuritySummary(selectedRepo)
-            .then(d => { if (mounted.current) setSecSummary(d); })
-            .catch(() => {});
-    }, [selectedRepo, range]);
+    useEffect(() => {
+        if (!selectedRepo) { setLoading(false); return; }
+        const days = range === '24h' ? 1 : range === '7d' ? 7 : 30;
+
+        // 1. Show cached data immediately (no loading flash)
+        const cached = cacheGet('dashboard', selectedRepo, range);
+        const cachedSec = cacheGet('dashboard_sec', selectedRepo);
+        if (cached) {
+            applyData(cached.data.curr, cached.data.full, days);
+            setLoading(false);
+            if (cachedSec) setSecSummary(cachedSec.data);
+            // If stale, refresh silently in background
+            if (cached.stale) fetchData(false);
+            return;
+        }
+
+        // 2. No cache — show loading and fetch
+        setLoading(true);
+        fetchData(false);
+    }, [selectedRepo, range]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const depTrend  = prevMetrics ? calcTrend(metrics?.deploymentFrequency ?? 0, prevMetrics.deploymentFrequency) : null;
     const srTrend   = prevMetrics ? calcTrend(metrics?.successRate ?? 0, prevMetrics.successRate) : null;
@@ -264,8 +274,9 @@ const Dashboard = () => {
                             }}>{r}</button>
                         ))}
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: 'rgba(255,255,255,0.3)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                        <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: 'rgba(255,255,255,0.3)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', cursor: refreshing ? 'not-allowed' : 'pointer' }}
+                        onClick={() => !refreshing && fetchData(true)}>
+                        <RefreshCw size={12} className={(loading || refreshing) ? 'animate-spin' : ''} />
                         {lastSync.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </div>
                 </div>

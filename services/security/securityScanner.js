@@ -1,15 +1,16 @@
 /**
  * securityScanner.js
- * Node.js port of the CloudHelm security_service.py pattern.
  *
- * Pipeline: clone repo → docker run aquasec/trivy → parse JSON → score → cleanup
+ * Scan pipeline: clone repo → Trivy CLI → parse JSON → score → cleanup
  *
- * Requirements on the host:
- *   - Docker Desktop (or Docker Engine) running
- *   - git installed
+ * Engine priority (automatic, no config needed):
+ *   1. Trivy CLI binary  — ./bin/trivy  (installed via `npm run install:trivy`)
+ *   2. Docker            — aquasec/trivy image (fallback when CLI not present)
+ *   3. TrivyLite         — pure-JS built-in engine (final fallback, no binaries needed)
  *
- * No Trivy binary needed — it runs inside the official aquasec/trivy Docker image.
- * Falls back to TrivyLite (pure-JS) when Docker is unavailable.
+ * Requirements:
+ *   - git installed on the host
+ *   - Trivy CLI in ./bin/trivy  OR  Docker running  OR  neither (TrivyLite kicks in)
  */
 
 'use strict';
@@ -22,6 +23,17 @@ const util = require('util');
 
 const execFileAsync = util.promisify(execFile);
 const trivyLite     = require('./trivyLite');
+
+// ─── Resolve Trivy CLI binary path ───────────────────────────────────────────
+// Looks for ./bin/trivy (installed by `npm run install:trivy`) relative to project root.
+// Falls back to a system-wide `trivy` if present on PATH.
+const PROJECT_ROOT = path.resolve(__dirname, '../../');
+const TRIVY_BIN_LOCAL = path.join(PROJECT_ROOT, 'bin', process.platform === 'win32' ? 'trivy.exe' : 'trivy');
+
+function getTrivyBin() {
+    if (fs.existsSync(TRIVY_BIN_LOCAL)) return TRIVY_BIN_LOCAL;
+    return null; // will fall through to Docker or TrivyLite
+}
 
 // ─── Risk scoring weights (from doc §9) ──────────────────────────────────────
 const SEVERITY_WEIGHTS = { critical: 25, high: 10, medium: 3, low: 1, unknown: 0 };
@@ -209,6 +221,56 @@ async function enrichDescriptions(vulns) {
 }
 
 
+// ─── Run Trivy via local CLI binary ──────────────────────────────────────────
+async function runTrivyViaCLI(repoDir, options = {}) {
+    const trivyBin = getTrivyBin();
+    if (!trivyBin) throw new Error('Trivy CLI binary not found in ./bin/trivy');
+
+    const severity = options.severity || 'CRITICAL,HIGH,MEDIUM,LOW';
+    // Write JSON output to a temp file — avoids mixing progress output with JSON on stdout
+    const outputFile = path.join(os.tmpdir(), `trivy-${Date.now()}.json`);
+
+    try {
+        await execFileAsync(trivyBin, [
+            'fs', repoDir,
+            '--scanners', 'vuln,secret,misconfig',
+            '--severity', severity,
+            '--format', 'json',
+            '--output', outputFile,
+            '--exit-code', '0',
+        ], { timeout: 300_000 });
+
+        const raw = fs.readFileSync(outputFile, 'utf8');
+        return raw;
+    } finally {
+        try { fs.unlinkSync(outputFile); } catch (_) {}
+    }
+}
+
+// ─── Generate SBOM via Trivy CLI ─────────────────────────────────────────────
+async function runTrivySBOMViaCLI(repoDir) {
+    const trivyBin = getTrivyBin();
+    if (!trivyBin) return '{}';
+
+    const outputFile = path.join(os.tmpdir(), `trivy-sbom-${Date.now()}.json`);
+    try {
+        await execFileAsync(trivyBin, [
+            'fs', repoDir,
+            '--format', 'cyclonedx',
+            '--output', outputFile,
+            '--exit-code', '0',
+        ], { timeout: 300_000 });
+
+        const raw = fs.readFileSync(outputFile, 'utf8');
+        return raw && raw.trim() ? raw : '{}';
+    } catch (_) {
+        return '{}';
+    } finally {
+        try { fs.unlinkSync(outputFile); } catch (_) {}
+    }
+}
+
+// ─── Run Trivy via Docker (secondary fallback when CLI not installed) ─────────
 async function runTrivyViaDocker(repoDir, options = {}) {
     const severity = options.severity || 'CRITICAL,HIGH,MEDIUM,LOW';
     // Normalise path for Docker on Windows (backslash → forward slash)
@@ -225,7 +287,6 @@ async function runTrivyViaDocker(repoDir, options = {}) {
         '--severity', severity,
         '-f', 'json',
         '--exit-code', '0',
-        // NOTE: --quiet removed — it can suppress Description and other fields in some Trivy versions
     ];
 
     return new Promise((resolve, reject) => {
@@ -233,10 +294,9 @@ async function runTrivyViaDocker(repoDir, options = {}) {
         let stdout = '';
         let stderr = '';
 
-        // Manual timeout — spawn's built-in timeout option doesn't reliably kill on all platforms
         const timer = setTimeout(() => {
             proc.kill('SIGKILL');
-            reject(new Error('Trivy scan timed out after 300 seconds.'));
+            reject(new Error('Trivy Docker scan timed out after 300 seconds.'));
         }, 300_000);
 
         proc.stdout.on('data', d => { stdout += d; });
@@ -244,24 +304,20 @@ async function runTrivyViaDocker(repoDir, options = {}) {
         proc.on('error', err => {
             clearTimeout(timer);
             if (err.code === 'ENOENT') {
-                reject(new Error('Docker not found. Install Docker Desktop.'));
+                reject(new Error('Docker not found.'));
             } else {
                 reject(new Error(`Docker spawn error: ${err.message}`));
             }
         });
         proc.on('close', code => {
             clearTimeout(timer);
-            // Trivy exits 0 even when vulns are found (--exit-code 0).
-            // Non-zero only means a real error.
             if (code !== 0) {
-                reject(new Error(`Trivy exited ${code}. stderr: ${stderr.slice(0, 500)}`));
+                reject(new Error(`Trivy Docker exited ${code}. stderr: ${stderr.slice(0, 500)}`));
                 return;
             }
-            // Find JSON start — Trivy without --quiet prints progress to stderr,
-            // but occasionally some versions mix a line into stdout.
             const jsonStart = stdout.indexOf('{');
             if (jsonStart < 0) {
-                reject(new Error('Trivy produced no JSON output.'));
+                reject(new Error('Trivy Docker produced no JSON output.'));
                 return;
             }
             resolve(stdout.slice(jsonStart));
@@ -269,7 +325,7 @@ async function runTrivyViaDocker(repoDir, options = {}) {
     });
 }
 
-// ─── Generate CycloneDX SBOM via Docker (doc §5 run_trivy_sbom) ──────────────
+// ─── Generate CycloneDX SBOM via Docker (fallback when CLI not available) ────
 async function runTrivySBOMViaDocker(repoDir) {
     const normalised = process.platform === 'win32'
         ? repoDir.replace(/\\/g, '/')
@@ -394,15 +450,20 @@ async function trivyLiteFallback(dirPath) {
     });
 }
 
-// ─── Public entry point (doc §5 scan_repository) ─────────────────────────────
+// ─── Public entry point ───────────────────────────────────────────────────────
 /**
- * Full scan pipeline: clone → trivy (Docker or TrivyLite) → parse → score → cleanup
+ * Full scan pipeline: clone → Trivy CLI / Docker / TrivyLite → parse → score → cleanup
+ *
+ * Engine selection (automatic):
+ *   1. Trivy CLI  — ./bin/trivy exists
+ *   2. Docker     — fallback when CLI not installed
+ *   3. TrivyLite  — pure-JS final fallback, no binaries needed
  *
  * @param {string}  repoFullName  "owner/repo"
  * @param {string}  [token]       GitHub PAT (needed for private repos)
  * @param {string}  [ref]         commit SHA or branch to checkout before scanning
  * @param {object}  [options]     { severity, useLocalDir }
- * @returns {object|null}  { risk_score, risk_level, security_metrics, vulnerabilities, sbom, scan_status }
+ * @returns {object|null}  { risk_score, risk_level, security_metrics, vulnerabilities, sbom, scan_status, engine }
  *                         Returns null on any failure — callers must handle null gracefully.
  */
 async function scanRepository(repoFullName, token = null, ref = null, options = {}) {
@@ -412,40 +473,60 @@ async function scanRepository(repoFullName, token = null, ref = null, options = 
         let scanDir;
 
         if (options.useLocalDir) {
-            // Scan the local project directory directly (no clone needed)
             scanDir = options.useLocalDir;
         } else {
-            // Clone the remote repo
             const cloned = await cloneRepo(repoFullName, token, ref);
             tmpDir  = cloned.tmpDir;
             scanDir = cloned.repoDir;
         }
 
-        // Try Docker first, fall back to TrivyLite
+        // ── Engine selection: CLI → Docker → TrivyLite ───────────────────────
         let rawJson;
-        let usedDocker = false;
-        try {
-            rawJson    = await runTrivyViaDocker(scanDir, options);
-            usedDocker = true;
-        } catch (dockerErr) {
-            console.warn(`[securityScanner] Docker unavailable (${dockerErr.message}), using TrivyLite fallback`);
-            rawJson = await trivyLiteFallback(scanDir);
+        let engine = 'trivylite';
+
+        const hasCLI = Boolean(getTrivyBin());
+
+        if (hasCLI) {
+            try {
+                rawJson = await runTrivyViaCLI(scanDir, options);
+                engine  = 'trivy-cli';
+                console.log(`[securityScanner] Using Trivy CLI (${TRIVY_BIN_LOCAL})`);
+            } catch (cliErr) {
+                console.warn(`[securityScanner] Trivy CLI failed (${cliErr.message}), trying Docker...`);
+            }
         }
 
-        // Parse results
+        if (!rawJson) {
+            try {
+                rawJson = await runTrivyViaDocker(scanDir, options);
+                engine  = 'trivy-docker';
+                console.log('[securityScanner] Using Trivy via Docker');
+            } catch (dockerErr) {
+                console.warn(`[securityScanner] Docker unavailable (${dockerErr.message}), using TrivyLite fallback`);
+                rawJson = await trivyLiteFallback(scanDir);
+                engine  = 'trivylite';
+            }
+        }
+
+        // ── Parse results ────────────────────────────────────────────────────
         const { counts, detail } = parseTrivyResults(rawJson);
         const riskScore = calculateSecurityRiskScore(counts);
 
         // Enrich any CVEs that Trivy returned without a description
         const enrichedDetail = await enrichDescriptions(detail);
 
-        // Generate SBOM (Docker only, non-fatal)
+        // ── Generate SBOM (CLI or Docker, non-fatal) ─────────────────────────
         let sbom = {};
-        if (usedDocker) {
+        if (engine === 'trivy-cli') {
+            try {
+                const sbomRaw = await runTrivySBOMViaCLI(scanDir);
+                sbom = JSON.parse(sbomRaw);
+            } catch (_) { /* non-fatal */ }
+        } else if (engine === 'trivy-docker') {
             try {
                 const sbomRaw = await runTrivySBOMViaDocker(scanDir);
                 sbom = JSON.parse(sbomRaw);
-            } catch (e) { /* non-fatal */ }
+            } catch (_) { /* non-fatal */ }
         }
 
         const scanResult = {
@@ -455,14 +536,14 @@ async function scanRepository(repoFullName, token = null, ref = null, options = 
             vulnerabilities:  enrichedDetail,
             sbom,
             scan_status:      'success',
-            engine:           usedDocker ? 'trivy-docker' : 'trivylite'
+            engine,
         };
 
         // Fire-and-forget to Datadog
         try {
             const datadog = require('./datadog');
             datadog.trackSecurityScan(repoFullName, counts).catch(() => {});
-        } catch (e) { /* non-fatal */ }
+        } catch (_) { /* non-fatal */ }
 
         return scanResult;
 

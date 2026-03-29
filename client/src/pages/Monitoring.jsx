@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Activity, Plus, Trash2, RefreshCw, CheckCircle2, XCircle, Clock, Zap, AlertTriangle, Globe } from 'lucide-react';
+import { Activity, Plus, Trash2, RefreshCw, CheckCircle2, XCircle, Clock, Zap, AlertTriangle, Globe, Shield, Ban, TrendingUp, Eye } from 'lucide-react';
 import { Line } from 'react-chartjs-2';
 import {
     Chart as ChartJS, CategoryScale, LinearScale, PointElement,
@@ -138,15 +138,31 @@ export default function Monitoring() {
     const [addEmail, setAddEmail] = useState('');
     const [adding, setAdding] = useState(false);
     const [addError, setAddError] = useState('');
+    const [addStatus, setAddStatus] = useState(''); // 'sending' | 'awaiting_code' | 'verifying' | 'ok' | 'down' | ''
+    const [addCode, setAddCode] = useState('');
+    const [pendingUrl, setPendingUrl] = useState('');
+    const [pendingEmail, setPendingEmail] = useState('');
     const [lastRefresh, setLastRefresh] = useState(null);
     const intervalRef = useRef(null);
 
-    // Load sites
+    // IDS state (admin only)
+    const [idsEvents, setIdsEvents] = useState([]);
+    const [idsBlocked, setIdsBlocked] = useState([]);
+    const [idsTraffic, setIdsTraffic] = useState([]);
+    const [idsLoading, setIdsLoading] = useState(false);
+
+    // Load sites — also sync the selected site object so is_up stays current
     const loadSites = useCallback(async () => {
         try {
             const data = await api.getMonitorSites();
             setSites(data || []);
             setLastRefresh(new Date());
+            // Keep selected in sync with latest server state (is_up, last_checked, etc.)
+            setSelected(prev => {
+                if (!prev) return prev;
+                const updated = (data || []).find(s => s.id === prev.id);
+                return updated || prev;
+            });
         } catch (e) {
             console.error('Failed to load sites', e);
         } finally {
@@ -154,9 +170,33 @@ export default function Monitoring() {
         }
     }, []);
 
+    // Load IDS data (admin only)
+    const loadIds = useCallback(async () => {
+        if (!isAdmin) return;
+        setIdsLoading(true);
+        try {
+            const [events, blocked, traffic] = await Promise.all([
+                api.getIdsEvents(50),
+                api.getIdsBlocked(),
+                api.getIdsTraffic(),
+            ]);
+            setIdsEvents(events || []);
+            setIdsBlocked(blocked || []);
+            setIdsTraffic(traffic || []);
+        } catch (e) {
+            console.error('IDS load failed', e);
+        } finally {
+            setIdsLoading(false);
+        }
+    }, [isAdmin]);
+
     // Load detail for selected site
     const loadDetail = useCallback(async (siteId, hours) => {
         if (!siteId) return;
+        // Clear stale data immediately so we never show another site's stats
+        setChecks([]);
+        setStats(null);
+        setIncidents([]);
         setDetailLoading(true);
         try {
             const [c, s, inc] = await Promise.all([
@@ -176,42 +216,96 @@ export default function Monitoring() {
 
     useEffect(() => {
         loadSites();
-    }, [loadSites]);
+        loadIds();
+    }, [loadSites, loadIds]);
 
-    // Auto-select first site
+    // Auto-select first site — only if nothing is selected yet
     useEffect(() => {
         if (sites.length && !selected) setSelected(sites[0]);
     }, [sites, selected]);
 
-    // Load detail when selection or range changes
+    // Load detail when selection or range changes — always clear first
     useEffect(() => {
-        if (selected) loadDetail(selected.id, range.hours);
-    }, [selected, range, loadDetail]);
+        if (selected) {
+            loadDetail(selected.id, range.hours);
+        } else {
+            setChecks([]);
+            setStats(null);
+            setIncidents([]);
+        }
+    }, [selected?.id, range.hours, loadDetail]); // use selected.id not selected object to avoid re-runs on is_up refresh
 
-    // Auto-refresh every 60s
+    // Auto-refresh every 60s — use a ref for selected so the interval always has the latest value
+    const selectedRef = useRef(null);
+    useEffect(() => { selectedRef.current = selected; }, [selected]);
+    const rangeRef = useRef(range);
+    useEffect(() => { rangeRef.current = range; }, [range]);
+
     useEffect(() => {
         intervalRef.current = setInterval(() => {
             loadSites();
-            if (selected) loadDetail(selected.id, range.hours);
+            loadIds();
+            const cur = selectedRef.current;
+            if (cur) loadDetail(cur.id, rangeRef.current.hours);
         }, 60000);
         return () => clearInterval(intervalRef.current);
-    }, [loadSites, loadDetail, selected, range]);
+    }, [loadSites, loadIds, loadDetail]);
 
-    const handleAdd = async (e) => {
+    // Step 1 — validate inputs, send verification code
+    const handleSendCode = async (e) => {
         e.preventDefault();
         if (!addUrl.trim()) return;
+        if (!addEmail.trim()) { setAddError('Alert email is required'); return; }
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(addEmail.trim())) { setAddError('Enter a valid email address'); return; }
         setAdding(true);
         setAddError('');
+        setAddStatus('sending');
         try {
-            await api.addMonitorSite(addUrl.trim(), addEmail.trim() || null);
-            setAddUrl('');
-            setAddEmail('');
-            await loadSites();
+            await api.sendMonitorVerification(addUrl.trim(), addEmail.trim());
+            setPendingUrl(addUrl.trim());
+            setPendingEmail(addEmail.trim());
+            setAddStatus('awaiting_code');
+            setAddCode('');
         } catch (err) {
-            setAddError(err?.response?.data?.error || err.message || 'Failed to add site');
+            setAddStatus('');
+            setAddError(err?.response?.data?.error || err.message || 'Failed to send code');
         } finally {
             setAdding(false);
         }
+    };
+
+    // Step 2 — submit the verification code, add the site
+    const handleVerifyAndAdd = async (e) => {
+        e.preventDefault();
+        if (!addCode.trim()) return;
+        setAdding(true);
+        setAddError('');
+        setAddStatus('verifying');
+        try {
+            const newSite = await api.confirmMonitorVerification(pendingUrl, pendingEmail, addCode.trim());
+            setAddStatus(newSite.is_up ? 'ok' : 'down');
+            setAddUrl('');
+            setAddEmail('');
+            setAddCode('');
+            setPendingUrl('');
+            setPendingEmail('');
+            await loadSites();
+            if (newSite.id) setSelected(newSite);
+            setTimeout(() => setAddStatus(''), 3000);
+        } catch (err) {
+            setAddStatus('awaiting_code'); // stay on code step so they can retry
+            setAddError(err?.response?.data?.error || err.message || 'Verification failed');
+        } finally {
+            setAdding(false);
+        }
+    };
+
+    const handleCancelVerification = () => {
+        setAddStatus('');
+        setAddCode('');
+        setPendingUrl('');
+        setPendingEmail('');
+        setAddError('');
     };
 
     const handleRemove = async (id) => {
@@ -243,7 +337,7 @@ export default function Monitoring() {
                     </div>
                 </div>
                 <button
-                    onClick={() => { loadSites(); if (selected) loadDetail(selected.id, range.hours); }}
+                    onClick={() => { loadSites(); loadIds(); if (selected) loadDetail(selected.id, range.hours); }}
                     style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, padding: '8px 14px', color: 'rgba(255,255,255,0.6)', fontSize: 13, cursor: 'pointer' }}
                 >
                     <RefreshCw size={13} /> Refresh
@@ -262,8 +356,72 @@ export default function Monitoring() {
                             <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.3)', lineHeight: 1.6 }}>
                                 Free plan allows 1 monitored site. Remove the existing site to add a new one.
                             </div>
+                        ) : isAdmin ? (
+                            /* ── Admin: direct add, no verification needed ── */
+                            <form onSubmit={async (e) => {
+                                e.preventDefault();
+                                setAdding(true); setAddError(''); setAddStatus('sending');
+                                try {
+                                    const newSite = await api.addMonitorSite(addUrl.trim(), addEmail.trim() || null);
+                                    setAddStatus(newSite.is_up ? 'ok' : 'down');
+                                    setAddUrl(''); setAddEmail('');
+                                    await loadSites();
+                                    if (newSite.id) setSelected(newSite);
+                                    setTimeout(() => setAddStatus(''), 3000);
+                                } catch (err) {
+                                    setAddStatus('');
+                                    setAddError(err?.response?.data?.error || err.message || 'Failed to add site');
+                                } finally { setAdding(false); }
+                            }} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                <div style={{ position: 'relative' }}>
+                                    <Globe size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'rgba(255,255,255,0.3)' }} />
+                                    <input value={addUrl} onChange={e => setAddUrl(e.target.value)} placeholder="https://yoursite.com" required
+                                        style={{ width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, padding: '9px 10px 9px 30px', fontSize: 13, color: '#fff', outline: 'none', boxSizing: 'border-box' }} />
+                                </div>
+                                <input value={addEmail} onChange={e => setAddEmail(e.target.value)} placeholder="Alert email (optional)" type="email"
+                                    style={{ width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, padding: '9px 10px', fontSize: 13, color: '#fff', outline: 'none', boxSizing: 'border-box' }} />
+                                {addError && <div style={{ fontSize: 11, color: '#F87171', lineHeight: 1.5 }}>{addError}</div>}
+                                {addStatus === 'ok' && <div style={{ fontSize: 11, color: '#34D399' }}>✓ Site is reachable — monitoring started</div>}
+                                {addStatus === 'down' && <div style={{ fontSize: 11, color: '#FBBF24' }}>⚠ Site added but currently unreachable — monitoring active</div>}
+                                <button type="submit" disabled={adding}
+                                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: 'rgba(59,130,246,0.15)', border: '1px solid rgba(59,130,246,0.3)', borderRadius: 10, padding: '9px', color: '#60A5FA', fontSize: 13, fontWeight: 600, cursor: adding ? 'not-allowed' : 'pointer', opacity: adding ? 0.6 : 1 }}>
+                                    <Plus size={14} /> {adding ? 'Adding...' : 'Start Monitoring'}
+                                </button>
+                            </form>
+                        ) : addStatus === 'awaiting_code' || addStatus === 'verifying' ? (
+                            /* ── Step 2: Enter verification code ── */
+                            <form onSubmit={handleVerifyAndAdd} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', lineHeight: 1.6 }}>
+                                    A 6-digit code was sent to <span style={{ color: '#60A5FA', fontWeight: 600 }}>{pendingEmail}</span>. Enter it below to confirm.
+                                </div>
+                                <input
+                                    value={addCode}
+                                    onChange={e => setAddCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                                    placeholder="Enter 6-digit code"
+                                    required
+                                    maxLength={6}
+                                    autoFocus
+                                    style={{ width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(59,130,246,0.4)', borderRadius: 10, padding: '10px 12px', fontSize: 20, fontWeight: 700, color: '#fff', outline: 'none', boxSizing: 'border-box', letterSpacing: 8, textAlign: 'center' }}
+                                />
+                                {addError && <div style={{ fontSize: 11, color: '#F87171', lineHeight: 1.5 }}>{addError}</div>}
+                                <button
+                                    type="submit"
+                                    disabled={adding || addCode.length !== 6}
+                                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: 'rgba(52,211,153,0.15)', border: '1px solid rgba(52,211,153,0.3)', borderRadius: 10, padding: '9px', color: '#34D399', fontSize: 13, fontWeight: 600, cursor: (adding || addCode.length !== 6) ? 'not-allowed' : 'pointer', opacity: (adding || addCode.length !== 6) ? 0.6 : 1 }}
+                                >
+                                    {adding ? 'Verifying...' : '✓ Verify & Add Site'}
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleCancelVerification}
+                                    style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', fontSize: 12, cursor: 'pointer', padding: '4px 0' }}
+                                >
+                                    ← Back
+                                </button>
+                            </form>
                         ) : (
-                            <form onSubmit={handleAdd} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                            /* ── Step 1: Enter URL + email ── */
+                            <form onSubmit={handleSendCode} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                                 <div style={{ position: 'relative' }}>
                                     <Globe size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'rgba(255,255,255,0.3)' }} />
                                     <input
@@ -277,17 +435,23 @@ export default function Monitoring() {
                                 <input
                                     value={addEmail}
                                     onChange={e => setAddEmail(e.target.value)}
-                                    placeholder="Alert email (optional)"
+                                    placeholder="Alert email (required)"
                                     type="email"
+                                    required
                                     style={{ width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, padding: '9px 10px', fontSize: 13, color: '#fff', outline: 'none', boxSizing: 'border-box' }}
                                 />
-                                {addError && <div style={{ fontSize: 11, color: '#F87171' }}>{addError}</div>}
+                                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', lineHeight: 1.5 }}>
+                                    A verification code will be sent to this email before the site is added.
+                                </div>
+                                {addError && <div style={{ fontSize: 11, color: '#F87171', lineHeight: 1.5 }}>{addError}</div>}
+                                {addStatus === 'ok' && <div style={{ fontSize: 11, color: '#34D399' }}>✓ Site is reachable — monitoring started</div>}
+                                {addStatus === 'down' && <div style={{ fontSize: 11, color: '#FBBF24' }}>⚠ Site added but currently unreachable — monitoring active</div>}
                                 <button
                                     type="submit"
                                     disabled={adding}
                                     style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: 'rgba(59,130,246,0.15)', border: '1px solid rgba(59,130,246,0.3)', borderRadius: 10, padding: '9px', color: '#60A5FA', fontSize: 13, fontWeight: 600, cursor: adding ? 'not-allowed' : 'pointer', opacity: adding ? 0.6 : 1 }}
                                 >
-                                    <Plus size={14} /> {adding ? 'Adding...' : 'Start Monitoring'}
+                                    <Plus size={14} /> {adding ? 'Sending code...' : 'Send Verification Code'}
                                 </button>
                             </form>
                         )}
@@ -345,6 +509,17 @@ export default function Monitoring() {
                     {!selected ? (
                         <div style={{ ...card, display: 'flex', alignItems: 'center', justifyContent: 'center', height: 300, color: 'rgba(255,255,255,0.2)', fontSize: 14 }}>
                             Select a site to view details
+                        </div>
+                    ) : detailLoading ? (
+                        /* Skeleton while fetching per-site data */
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                            <div style={{ ...card, height: 64, background: 'rgba(255,255,255,0.04)' }} />
+                            <div style={{ display: 'flex', gap: 12 }}>
+                                {[1,2,3,4,5].map(i => <div key={i} style={{ flex: 1, height: 72, borderRadius: 16, background: 'rgba(255,255,255,0.04)' }} />)}
+                            </div>
+                            <div style={{ ...card, height: 80, background: 'rgba(255,255,255,0.04)' }} />
+                            <div style={{ ...card, height: 200, background: 'rgba(255,255,255,0.04)' }} />
+                            <div style={{ ...card, height: 120, background: 'rgba(255,255,255,0.04)' }} />
                         </div>
                     ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -449,6 +624,143 @@ export default function Monitoring() {
             {isAdmin && (
                 <div style={{ marginTop: 20, display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'rgba(255,255,255,0.25)' }}>
                     <Zap size={11} style={{ color: '#FBBF24' }} /> Admin mode — unlimited sites
+                </div>
+            )}
+
+            {/* ── IDS / Security Panel (admin only) ── */}
+            {isAdmin && (
+                <div style={{ marginTop: 32 }}>
+                    {/* Section header */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <div style={{ width: 32, height: 32, borderRadius: 9, background: 'rgba(239,68,68,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <Shield size={15} style={{ color: '#F87171' }} />
+                            </div>
+                            <div>
+                                <div style={{ fontSize: 16, fontWeight: 700 }}>Intrusion Detection</div>
+                                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 1 }}>Real-time traffic anomaly monitoring · Cloudflare-backed</div>
+                            </div>
+                        </div>
+                        <button onClick={loadIds} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, padding: '7px 12px', color: 'rgba(255,255,255,0.5)', fontSize: 12, cursor: 'pointer' }}>
+                            <RefreshCw size={12} className={idsLoading ? 'animate-spin' : ''} /> Refresh
+                        </button>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 16 }}>
+                        {/* Blocked IPs */}
+                        <div style={{ ...card, gridColumn: '1' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
+                                <Ban size={13} style={{ color: '#F87171' }} />
+                                <span style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.35)', letterSpacing: '0.05em' }}>BLOCKED IPs</span>
+                                <span style={{ marginLeft: 'auto', fontSize: 18, fontWeight: 800, color: idsBlocked.length > 0 ? '#F87171' : '#34D399' }}>{idsBlocked.length}</span>
+                            </div>
+                            {idsBlocked.length === 0 ? (
+                                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.2)', textAlign: 'center', padding: '8px 0' }}>No blocked IPs</div>
+                            ) : idsBlocked.map((b, i) => (
+                                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderBottom: i < idsBlocked.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                        <div style={{ fontSize: 12, fontFamily: 'monospace', color: '#F87171', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.ip}</div>
+                                        <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', marginTop: 2 }}>Expires {new Date(b.expiresAt).toLocaleTimeString()}</div>
+                                    </div>
+                                    <button
+                                        onClick={async () => { await api.unblockIp(b.ip); loadIds(); }}
+                                        style={{ fontSize: 10, padding: '3px 8px', borderRadius: 6, background: 'rgba(52,211,153,0.1)', border: '1px solid rgba(52,211,153,0.2)', color: '#34D399', cursor: 'pointer' }}
+                                    >Unblock</button>
+                                </div>
+                            ))}
+                        </div>
+
+                        {/* Top traffic */}
+                        <div style={{ ...card }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
+                                <TrendingUp size={13} style={{ color: '#60A5FA' }} />
+                                <span style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.35)', letterSpacing: '0.05em' }}>TOP IPs (req/min)</span>
+                            </div>
+                            {idsTraffic.length === 0 ? (
+                                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.2)', textAlign: 'center', padding: '8px 0' }}>No traffic data yet</div>
+                            ) : idsTraffic.slice(0, 6).map((t, i) => {
+                                const max = idsTraffic[0]?.count || 1;
+                                return (
+                                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 7 }}>
+                                        <span style={{ fontSize: 11, fontFamily: 'monospace', color: t.blocked ? '#F87171' : '#fff', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.ip}</span>
+                                        <div style={{ width: 60, height: 3, background: 'rgba(255,255,255,0.06)', borderRadius: 2 }}>
+                                            <div style={{ height: '100%', borderRadius: 2, background: t.blocked ? '#F87171' : '#60A5FA', width: `${(t.count / max) * 100}%` }} />
+                                        </div>
+                                        <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', width: 28, textAlign: 'right' }}>{t.count}</span>
+                                    </div>
+                                );
+                            })}
+                        </div>
+
+                        {/* Security posture — dynamic from backend */}
+                        <div style={{ ...card }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
+                                <Shield size={13} style={{ color: '#F97316' }} />
+                                <span style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.35)', letterSpacing: '0.05em' }}>SECURITY POSTURE</span>
+                            </div>
+                            {idsLoading ? (
+                                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.2)' }}>Loading...</div>
+                            ) : (
+                                <>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                                        <div style={{ width: 8, height: 8, borderRadius: '50%', background: idsBlocked.length > 0 ? '#FBBF24' : '#34D399' }} />
+                                        <span style={{ fontSize: 12, color: '#fff', fontWeight: 600 }}>
+                                            {idsBlocked.length > 0 ? `${idsBlocked.length} IP(s) currently blocked` : 'No active threats'}
+                                        </span>
+                                    </div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
+                                            <span style={{ color: 'rgba(255,255,255,0.4)' }}>Anomalies (last 50)</span>
+                                            <span style={{ color: idsEvents.length > 10 ? '#FBBF24' : '#34D399', fontWeight: 700 }}>{idsEvents.length}</span>
+                                        </div>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
+                                            <span style={{ color: 'rgba(255,255,255,0.4)' }}>Blocked IPs</span>
+                                            <span style={{ color: idsBlocked.length > 0 ? '#F87171' : '#34D399', fontWeight: 700 }}>{idsBlocked.length}</span>
+                                        </div>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
+                                            <span style={{ color: 'rgba(255,255,255,0.4)' }}>Active IPs tracked</span>
+                                            <span style={{ color: '#60A5FA', fontWeight: 700 }}>{idsTraffic.length}</span>
+                                        </div>
+                                        {idsEvents.filter(e => e.type === 'BLOCK').length > 0 && (
+                                            <div style={{ marginTop: 6, padding: '6px 10px', background: 'rgba(248,113,113,0.08)', borderRadius: 8, border: '1px solid rgba(248,113,113,0.15)', fontSize: 11, color: '#F87171' }}>
+                                                {idsEvents.filter(e => e.type === 'BLOCK').length} block event(s) detected
+                                            </div>
+                                        )}
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Recent anomaly events */}
+                    <div style={card}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 14 }}>
+                            <Eye size={13} style={{ color: '#A78BFA' }} />
+                            <span style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.35)', letterSpacing: '0.05em' }}>ANOMALY LOG</span>
+                            <span style={{ marginLeft: 'auto', fontSize: 10, color: 'rgba(255,255,255,0.2)' }}>Last 50 events</span>
+                        </div>
+                        {idsEvents.length === 0 ? (
+                            <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.2)', textAlign: 'center', padding: '16px 0' }}>No anomalies detected — traffic looks clean</div>
+                        ) : (
+                            <div style={{ maxHeight: 280, overflowY: 'auto' }}>
+                                {idsEvents.map((e, i) => {
+                                    const typeColor = e.type === 'BLOCK' ? '#F87171' : e.type === 'WARN' ? '#FBBF24' : e.type === 'SCANNER' ? '#F97316' : e.type === 'PATH_TRAVERSAL' ? '#EF4444' : '#A78BFA';
+                                    return (
+                                        <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '8px 0', borderBottom: i < idsEvents.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none' }}>
+                                            <span style={{ fontSize: 9, fontWeight: 800, color: typeColor, background: `${typeColor}15`, padding: '2px 6px', borderRadius: 5, flexShrink: 0, marginTop: 1 }}>{e.type}</span>
+                                            <div style={{ flex: 1, minWidth: 0 }}>
+                                                <div style={{ fontSize: 11, fontFamily: 'monospace', color: 'rgba(255,255,255,0.7)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.ip}</div>
+                                                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>{e.detail}</div>
+                                            </div>
+                                            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.2)', flexShrink: 0 }}>
+                                                {new Date(e.timestamp).toLocaleTimeString()}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
                 </div>
             )}
         </div>

@@ -9,6 +9,7 @@ import StatCard from '../components/StatCard';
 import ChartCard from '../components/ChartCard';
 import { api } from '../services/api';
 import { useAppContext } from '../contexts/AppContext';
+import { cacheGet, cacheSet } from '../services/cache';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Title, Tooltip, Legend, Filler);
 
@@ -91,14 +92,31 @@ const Metrics = () => {
         }
     }, [selectedRepo]);
 
-    const load = useCallback(async (r) => {
+    const load = useCallback(async (r, force = false) => {
         if (!selectedRepo) {
             setMetricsData(null);
             setCharts({});
             setLoading(false);
             return;
         }
-        setLoading(true);
+
+        // Show cache immediately
+        if (!force) {
+            const cached = cacheGet('metrics', selectedRepo, r);
+            if (cached) {
+                const { metricsData: md, charts: ch } = cached.data;
+                setMetricsData(md);
+                setCharts(ch);
+                setLoading(false);
+                if (!cached.stale) return;
+                // stale — fall through to refresh silently (no loading spinner)
+            } else {
+                setLoading(true);
+            }
+        } else {
+            setLoading(true);
+        }
+
         if (controller.current) controller.current.abort();
         controller.current = new AbortController();
 
@@ -204,7 +222,7 @@ const Metrics = () => {
                 const pointRadii = (dataArr) => dataArr.map((v, i) => hasData[i] ? 4 : 0);
                 const pointHoverRadii = (dataArr) => dataArr.map((v, i) => hasData[i] ? 6 : 0);
 
-                setCharts({
+                const newCharts = {
                     buildDuration: {
                         labels,
                         datasets: [{
@@ -277,13 +295,17 @@ const Metrics = () => {
                             pointBackgroundColor: '#A855F7', pointBorderColor: '#fff',
                         }]
                     },
-                });
+                };
+
+                setCharts(newCharts);
             }
 
             api.getSecuritySummary(selectedRepo || null)
                 .then(d => setSecSummary(d))
                 .catch(() => setSecSummary({ critical: 0, high: 0, medium: 0, low: 0, total: 0 }));
 
+            // Cache for instant re-render on next visit
+            cacheSet('metrics', selectedRepo, { metricsData: data, charts: newCharts }, r);
 
         } catch (e) {
             if (e.name !== 'AbortError') console.error(e);
@@ -373,7 +395,7 @@ const Metrics = () => {
                             </button>
                         ))}
                     </div>
-                    <button onClick={() => load(range)}
+                    <button onClick={() => load(range, true)}
                         style={{
                             width: 38, height: 38, borderRadius: 12,
                             display: 'flex', alignItems: 'center', justifyContent: 'center',

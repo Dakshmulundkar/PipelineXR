@@ -45,3 +45,6 @@ trivy/
 
 # Reference folder (teammate's copy, local only)
 refrence/
+
+# Trivy CLI binary (installed via `npm run install:trivy`)
+bin/

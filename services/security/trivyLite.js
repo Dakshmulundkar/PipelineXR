@@ -20,14 +20,14 @@ const SKIP_DIRS = new Set([
     'trivy', '.kiro', 'vendor'
 ]);
 
-// ─── SECRET RULES ─────────────────────────────────────────────────────────────
+// ─── SECRET RULES — exact patterns from trivy/pkg/fanal/secret/builtin-rules.go ──
 const SECRET_RULES = [
     // AWS
-    { id: 'aws-access-key-id',     category: 'AWS',    title: 'AWS Access Key ID',     severity: 'CRITICAL', regex: /(A3T[A-Z0-9]|AKIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}/g },
-    { id: 'aws-secret-access-key', category: 'AWS',    title: 'AWS Secret Access Key', severity: 'CRITICAL', regex: /(?:aws.{0,20}secret.{0,20}key)\s*[=:]\s*['"]?([A-Za-z0-9\/+=]{40})['"]?/gi },
-    // GitHub
-    { id: 'github-pat',            category: 'GitHub', title: 'GitHub Personal Access Token',  severity: 'CRITICAL', regex: /ghp_[0-9a-zA-Z]{36}/g },
-    { id: 'github-oauth',          category: 'GitHub', title: 'GitHub OAuth Access Token',     severity: 'CRITICAL', regex: /gho_[0-9a-zA-Z]{36}/g },
+    { id: 'aws-access-key-id',     category: 'AWS',    title: 'AWS Access Key ID',     severity: 'CRITICAL', regex: /([^0-9a-zA-Z_]|^)(A3T[A-Z0-9]|AKIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}["']?[.,]?(\s+|$)/g },
+    { id: 'aws-secret-access-key', category: 'AWS',    title: 'AWS Secret Access Key', severity: 'CRITICAL', regex: /["']?aws_?(sec(ret)?)?_?(access)?_?key["']?\s*(:|=>|=)?\s*["']?([A-Za-z0-9\/+=]{40})["']?[.,]?(\s+|$)/gi },
+    // GitHub — exact trivy patterns
+    { id: 'github-pat',            category: 'GitHub', title: 'GitHub Personal Access Token',       severity: 'CRITICAL', regex: /([^0-9a-zA-Z_]|^)ghp_[0-9a-zA-Z]{36}/g },
+    { id: 'github-oauth',          category: 'GitHub', title: 'GitHub OAuth Access Token',          severity: 'CRITICAL', regex: /([^0-9a-zA-Z_]|^)gho_[0-9a-zA-Z]{36}/g },
     { id: 'github-app-token',      category: 'GitHub', title: 'GitHub App Token',              severity: 'CRITICAL', regex: /(ghu|ghs)_[0-9a-zA-Z]{36}/g },
     { id: 'github-refresh-token',  category: 'GitHub', title: 'GitHub Refresh Token',          severity: 'CRITICAL', regex: /ghr_[0-9a-zA-Z]{76}/g },
     { id: 'github-fine-grained',   category: 'GitHub', title: 'GitHub Fine-grained PAT',       severity: 'CRITICAL', regex: /github_pat_[a-zA-Z0-9]{22}_[a-zA-Z0-9]{59}/g },
@@ -155,6 +155,27 @@ const SECRET_RULES = [
     { id: 'docker-auth',           category: 'Docker',     title: 'Docker Registry Auth', severity: 'HIGH',   regex: /(?:docker.{0,25})(?:password|token|secret).{0,5}[=:]\s*['"]([A-Za-z0-9+\/]{20,}={0,2})['"]/gi },
     // Symfony
     { id: 'symfony-secret',        category: 'Symfony',    title: 'Symfony APP_SECRET',  severity: 'MEDIUM',  regex: /APP_SECRET\s*=\s*['"]?([a-f0-9]{32})['"]?/gi },
+    // Symfony default (exact trivy pattern)
+    { id: 'symfony-default-secret', category: 'Symfony',   title: 'Symfony Default Secret', severity: 'HIGH', regex: /ThisTokenIsNotSoSecretChangeIt|ThisEzPlatformTokenIsNotSoSecret_PleaseChangeIt/g },
+    // Dockerconfig
+    { id: 'dockerconfig-secret',   category: 'Docker',     title: 'Dockerconfig secret exposed', severity: 'HIGH', regex: /\.(dockerconfigjson|dockercfg):\s*\|*\s*(ey|ew)+[A-Za-z0-9\/+=]+/gi },
+    // Beamer
+    { id: 'beamer-api-token',      category: 'Beamer',     title: 'Beamer API token',    severity: 'LOW',     regex: /(?:beamer.{0,25})[=:>]{1,3}.{0,5}['"]b_[a-z0-9=_\-]{44}['"]/gi },
+    // Contentful
+    { id: 'contentful-delivery-api-token', category: 'Contentful', title: 'Contentful delivery API token', severity: 'LOW', regex: /(?:contentful.{0,25})[=:>]{1,3}.{0,5}['"]([a-z0-9\-=_]{43})['"]/gi },
+    // Finicity
+    { id: 'finicity-client-secret', category: 'Finicity',  title: 'Finicity client secret', severity: 'MEDIUM', regex: /(?:finicity.{0,25})[=:>]{1,3}.{0,5}['"]([a-z0-9]{20})['"]/gi },
+    { id: 'finicity-api-token',    category: 'Finicity',   title: 'Finicity API token',  severity: 'MEDIUM',  regex: /(?:finicity.{0,25})[=:>]{1,3}.{0,5}['"]([a-f0-9]{32})['"]/gi },
+    // Ionic
+    { id: 'ionic-api-token',       category: 'Ionic',      title: 'Ionic API token',     severity: 'MEDIUM',  regex: /(?:ionic.{0,25})[=:>]{1,3}.{0,5}['"]ion_[a-z0-9]{42}['"]/gi },
+    // Lob
+    { id: 'lob-api-key',           category: 'Lob',        title: 'Lob API Key',         severity: 'LOW',     regex: /(?:lob.{0,25})[=:>]{1,3}.{0,5}['"](?:live|test)_[a-f0-9]{35}['"]/gi },
+    { id: 'lob-pub-api-key',       category: 'Lob',        title: 'Lob Publishable API Key', severity: 'LOW', regex: /(?:lob.{0,25})[=:>]{1,3}.{0,5}['"](?:test|live)_pub_[a-f0-9]{31}['"]/gi },
+    // MessageBird
+    { id: 'messagebird-api-token', category: 'MessageBird', title: 'MessageBird API token', severity: 'MEDIUM', regex: /(?:messagebird.{0,25})[=:>]{1,3}.{0,5}['"]([a-z0-9]{25})['"]/gi },
+    { id: 'messagebird-client-id', category: 'MessageBird', title: 'MessageBird API client ID', severity: 'MEDIUM', regex: /(?:messagebird.{0,25})[=:>]{1,3}.{0,5}['"]([a-h0-9]{8}-[a-h0-9]{4}-[a-h0-9]{4}-[a-h0-9]{4}-[a-h0-9]{12})['"]/gi },
+    // Private Packagist
+    { id: 'private-packagist-token', category: 'Packagist', title: 'Private Packagist token', severity: 'HIGH', regex: /packagist_[ou][ru]t_[a-f0-9]{68}/gi },
     // Databases
     { id: 'mongodb-connection',    category: 'Database',   title: 'MongoDB Connection String',    severity: 'HIGH', regex: /mongodb(?:\+srv)?:\/\/[^:]+:[^@]+@[^\s'"]+/g },
     { id: 'postgres-connection',   category: 'Database',   title: 'PostgreSQL Connection String', severity: 'HIGH', regex: /postgres(?:ql)?:\/\/[^:]+:[^@]+@[^\s'"]+/g },
@@ -217,28 +238,92 @@ const IAC_RULES = [
     { id: 'tf-no-versioning',     title: 'S3 Versioning Disabled',           severity: 'LOW',    regex: /versioning\s*\{[\s\S]*?enabled\s*=\s*false/gi, description: 'S3 versioning should be enabled' },
 ];
 
-// ─── VULN DB (known CVEs in common packages) ──────────────────────────────────
+// ─── VULN DB — expanded CVE list for npm packages ─────────────────────────────
 const VULN_DB = [
-    { id: 'CVE-2021-44228', package: 'log4j',          severity: 'CRITICAL', title: 'Log4Shell RCE',                  description: 'Remote code execution via JNDI lookup in log4j', fixedVersion: '2.15.0' },
-    { id: 'CVE-2021-45046', package: 'log4j',          severity: 'CRITICAL', title: 'Log4Shell Bypass',               description: 'Bypass of CVE-2021-44228 fix', fixedVersion: '2.16.0' },
-    { id: 'CVE-2022-22965', package: 'spring-core',    severity: 'CRITICAL', title: 'Spring4Shell RCE',               description: 'Remote code execution in Spring Framework', fixedVersion: '5.3.18' },
-    { id: 'CVE-2021-42013', package: 'apache-httpd',   severity: 'CRITICAL', title: 'Apache Path Traversal',          description: 'Path traversal and RCE in Apache HTTP Server', fixedVersion: '2.4.51' },
-    { id: 'CVE-2022-0778',  package: 'openssl',        severity: 'HIGH',     title: 'OpenSSL Infinite Loop',          description: 'Infinite loop in BN_mod_sqrt() causes DoS', fixedVersion: '1.1.1n' },
-    { id: 'CVE-2021-3711',  package: 'openssl',        severity: 'CRITICAL', title: 'OpenSSL SM2 Buffer Overflow',    description: 'Buffer overflow in SM2 decryption', fixedVersion: '1.1.1l' },
-    { id: 'CVE-2022-25881', package: 'http-cache-semantics', severity: 'HIGH', title: 'ReDoS in http-cache-semantics', description: 'Regular expression denial of service', fixedVersion: '4.1.1' },
-    { id: 'CVE-2022-24999', package: 'qs',             severity: 'HIGH',     title: 'qs Prototype Pollution',         description: 'Prototype pollution via query string parsing', fixedVersion: '6.11.0' },
-    { id: 'CVE-2022-3517',  package: 'minimatch',      severity: 'HIGH',     title: 'minimatch ReDoS',                description: 'Regular expression denial of service', fixedVersion: '3.0.5' },
-    { id: 'CVE-2022-37601', package: 'loader-utils',   severity: 'CRITICAL', title: 'loader-utils Prototype Pollution', description: 'Prototype pollution in parseQuery', fixedVersion: '2.0.3' },
-    { id: 'CVE-2023-44270', package: 'postcss',        severity: 'MEDIUM',   title: 'PostCSS Line Return Parsing',    description: 'Incorrect parsing of CSS', fixedVersion: '8.4.31' },
-    { id: 'CVE-2023-26115', package: 'word-wrap',      severity: 'HIGH',     title: 'word-wrap ReDoS',                description: 'Regular expression denial of service', fixedVersion: '1.2.4' },
-    { id: 'CVE-2023-28155', package: 'request',        severity: 'MEDIUM',   title: 'request SSRF',                   description: 'Server-side request forgery via redirect', fixedVersion: null },
-    { id: 'CVE-2022-46175', package: 'json5',          severity: 'HIGH',     title: 'json5 Prototype Pollution',      description: 'Prototype pollution via parse()', fixedVersion: '2.2.2' },
-    { id: 'CVE-2023-45133', package: '@babel/traverse', severity: 'CRITICAL', title: 'Babel Traverse Code Execution', description: 'Arbitrary code execution via malicious code', fixedVersion: '7.23.2' },
-    { id: 'CVE-2022-25858', package: 'terser',         severity: 'HIGH',     title: 'Terser ReDoS',                   description: 'Regular expression denial of service', fixedVersion: '5.14.2' },
-    { id: 'CVE-2021-23337', package: 'lodash',         severity: 'HIGH',     title: 'Lodash Command Injection',       description: 'Command injection via template', fixedVersion: '4.17.21' },
-    { id: 'CVE-2020-8203',  package: 'lodash',         severity: 'HIGH',     title: 'Lodash Prototype Pollution',     description: 'Prototype pollution via zipObjectDeep', fixedVersion: '4.17.19' },
-    { id: 'CVE-2022-1650',  package: 'eventsource',    severity: 'CRITICAL', title: 'EventSource Credential Leak',    description: 'Credentials sent to untrusted hosts', fixedVersion: '2.0.2' },
-    { id: 'CVE-2021-3803',  package: 'nth-check',      severity: 'HIGH',     title: 'nth-check ReDoS',                description: 'Inefficient regular expression', fixedVersion: '2.0.1' },
+    // Critical RCE / injection
+    { id: 'CVE-2021-44228',  package: 'log4j',                  severity: 'CRITICAL', title: 'Log4Shell RCE',                        description: 'Remote code execution via JNDI lookup in log4j', fixedVersion: '2.15.0' },
+    { id: 'CVE-2021-45046',  package: 'log4j',                  severity: 'CRITICAL', title: 'Log4Shell Bypass',                     description: 'Bypass of CVE-2021-44228 fix', fixedVersion: '2.16.0' },
+    { id: 'CVE-2022-22965',  package: 'spring-core',            severity: 'CRITICAL', title: 'Spring4Shell RCE',                     description: 'Remote code execution in Spring Framework', fixedVersion: '5.3.18' },
+    { id: 'CVE-2023-45133',  package: '@babel/traverse',        severity: 'CRITICAL', title: 'Babel Traverse Code Execution',        description: 'Arbitrary code execution via malicious code', fixedVersion: '7.23.2' },
+    { id: 'CVE-2022-1650',   package: 'eventsource',            severity: 'CRITICAL', title: 'EventSource Credential Leak',          description: 'Credentials sent to untrusted hosts', fixedVersion: '2.0.2' },
+    { id: 'CVE-2022-37601',  package: 'loader-utils',           severity: 'CRITICAL', title: 'loader-utils Prototype Pollution',     description: 'Prototype pollution in parseQuery', fixedVersion: '2.0.3' },
+    { id: 'CVE-2021-3711',   package: 'openssl',                severity: 'CRITICAL', title: 'OpenSSL SM2 Buffer Overflow',          description: 'Buffer overflow in SM2 decryption', fixedVersion: '1.1.1l' },
+    { id: 'CVE-2021-42013',  package: 'apache-httpd',           severity: 'CRITICAL', title: 'Apache Path Traversal',                description: 'Path traversal and RCE in Apache HTTP Server', fixedVersion: '2.4.51' },
+    // High severity
+    { id: 'CVE-2022-25881',  package: 'http-cache-semantics',   severity: 'HIGH',     title: 'ReDoS in http-cache-semantics',        description: 'Regular expression denial of service', fixedVersion: '4.1.1' },
+    { id: 'CVE-2022-24999',  package: 'qs',                     severity: 'HIGH',     title: 'qs Prototype Pollution',               description: 'Prototype pollution via query string parsing', fixedVersion: '6.11.0' },
+    { id: 'CVE-2022-3517',   package: 'minimatch',              severity: 'HIGH',     title: 'minimatch ReDoS',                      description: 'Regular expression denial of service', fixedVersion: '3.0.5' },
+    { id: 'CVE-2023-26115',  package: 'word-wrap',              severity: 'HIGH',     title: 'word-wrap ReDoS',                      description: 'Regular expression denial of service', fixedVersion: '1.2.4' },
+    { id: 'CVE-2022-46175',  package: 'json5',                  severity: 'HIGH',     title: 'json5 Prototype Pollution',            description: 'Prototype pollution via parse()', fixedVersion: '2.2.2' },
+    { id: 'CVE-2022-25858',  package: 'terser',                 severity: 'HIGH',     title: 'Terser ReDoS',                         description: 'Regular expression denial of service', fixedVersion: '5.14.2' },
+    { id: 'CVE-2021-23337',  package: 'lodash',                 severity: 'HIGH',     title: 'Lodash Command Injection',             description: 'Command injection via template', fixedVersion: '4.17.21' },
+    { id: 'CVE-2020-8203',   package: 'lodash',                 severity: 'HIGH',     title: 'Lodash Prototype Pollution',           description: 'Prototype pollution via zipObjectDeep', fixedVersion: '4.17.19' },
+    { id: 'CVE-2021-3803',   package: 'nth-check',              severity: 'HIGH',     title: 'nth-check ReDoS',                      description: 'Inefficient regular expression', fixedVersion: '2.0.1' },
+    { id: 'CVE-2022-0778',   package: 'openssl',                severity: 'HIGH',     title: 'OpenSSL Infinite Loop',                description: 'Infinite loop in BN_mod_sqrt() causes DoS', fixedVersion: '1.1.1n' },
+    { id: 'CVE-2022-31129',  package: 'moment',                 severity: 'HIGH',     title: 'moment.js ReDoS',                      description: 'Path traversal in moment.js', fixedVersion: '2.29.4' },
+    { id: 'CVE-2022-24785',  package: 'moment',                 severity: 'HIGH',     title: 'moment.js Path Traversal',             description: 'Path traversal vulnerability', fixedVersion: '2.29.2' },
+    { id: 'CVE-2023-26136',  package: 'tough-cookie',           severity: 'HIGH',     title: 'tough-cookie Prototype Pollution',     description: 'Prototype pollution via cookie parsing', fixedVersion: '4.1.3' },
+    { id: 'CVE-2022-33987',  package: 'got',                    severity: 'HIGH',     title: 'got SSRF',                             description: 'Server-side request forgery via redirect', fixedVersion: '12.1.0' },
+    { id: 'CVE-2023-28154',  package: 'webpack',                severity: 'HIGH',     title: 'webpack DOM Clobbering',               description: 'DOM clobbering via auto public path', fixedVersion: '5.76.0' },
+    { id: 'CVE-2022-37434',  package: 'zlib',                   severity: 'HIGH',     title: 'zlib heap buffer overflow',            description: 'Heap buffer overflow in inflate', fixedVersion: null },
+    { id: 'CVE-2023-32002',  package: 'node',                   severity: 'HIGH',     title: 'Node.js policy bypass',                description: 'Policy mechanism bypass via module.constructor.createRequire', fixedVersion: '20.5.1' },
+    { id: 'CVE-2023-30581',  package: 'node',                   severity: 'HIGH',     title: 'Node.js mainModule proto bypass',      description: 'mainModule.__proto__ bypass', fixedVersion: '20.3.1' },
+    { id: 'CVE-2022-43548',  package: 'node',                   severity: 'HIGH',     title: 'Node.js DNS rebinding',                description: 'DNS rebinding in --inspect via invalid IP addresses', fixedVersion: '18.11.0' },
+    { id: 'CVE-2023-44487',  package: 'node',                   severity: 'HIGH',     title: 'HTTP/2 Rapid Reset Attack',            description: 'HTTP/2 rapid reset can cause DoS', fixedVersion: '20.8.1' },
+    { id: 'CVE-2021-32803',  package: 'tar',                    severity: 'HIGH',     title: 'tar Arbitrary File Write',             description: 'Arbitrary file write via insufficient symlink protection', fixedVersion: '6.1.2' },
+    { id: 'CVE-2021-32804',  package: 'tar',                    severity: 'HIGH',     title: 'tar Arbitrary File Write (2)',         description: 'Arbitrary file write via absolute path', fixedVersion: '6.1.1' },
+    { id: 'CVE-2021-37701',  package: 'tar',                    severity: 'HIGH',     title: 'tar Arbitrary File Write (3)',         description: 'Arbitrary file write via insufficient checks', fixedVersion: '6.1.7' },
+    { id: 'CVE-2021-37712',  package: 'tar',                    severity: 'HIGH',     title: 'tar Arbitrary File Write (4)',         description: 'Arbitrary file write via symlink attack', fixedVersion: '6.1.9' },
+    { id: 'CVE-2022-29244',  package: 'npm',                    severity: 'HIGH',     title: 'npm pack ignores .npmignore',          description: 'npm pack does not respect .npmignore', fixedVersion: '8.11.0' },
+    { id: 'CVE-2021-43138',  package: 'async',                  severity: 'HIGH',     title: 'async Prototype Pollution',            description: 'Prototype pollution via mapValues', fixedVersion: '3.2.2' },
+    { id: 'CVE-2022-0536',   package: 'follow-redirects',       severity: 'HIGH',     title: 'follow-redirects Credential Leak',     description: 'Exposure of sensitive information to unauthorized actor', fixedVersion: '1.14.8' },
+    { id: 'CVE-2022-0155',   package: 'follow-redirects',       severity: 'HIGH',     title: 'follow-redirects Private Data Leak',   description: 'Private data leak via cross-domain redirect', fixedVersion: '1.14.7' },
+    { id: 'CVE-2023-26159',  package: 'follow-redirects',       severity: 'HIGH',     title: 'follow-redirects URL Redirect',        description: 'URL redirection to untrusted site', fixedVersion: '1.15.4' },
+    { id: 'CVE-2022-21803',  package: 'nconf',                  severity: 'HIGH',     title: 'nconf Prototype Pollution',            description: 'Prototype pollution via merge', fixedVersion: '0.12.1' },
+    { id: 'CVE-2022-25927',  package: 'ua-parser-js',           severity: 'HIGH',     title: 'ua-parser-js ReDoS',                   description: 'Regular expression denial of service', fixedVersion: '0.7.33' },
+    { id: 'CVE-2022-25762',  package: 'socket.io-parser',       severity: 'HIGH',     title: 'socket.io-parser Prototype Pollution', description: 'Prototype pollution via crafted packet', fixedVersion: '4.2.1' },
+    { id: 'CVE-2023-32695',  package: 'socket.io-parser',       severity: 'HIGH',     title: 'socket.io-parser DoS',                 description: 'Denial of service via crafted packet', fixedVersion: '4.2.3' },
+    { id: 'CVE-2022-41940',  package: 'engine.io',              severity: 'HIGH',     title: 'engine.io DoS',                        description: 'Denial of service via crafted HTTP request', fixedVersion: '6.2.1' },
+    { id: 'CVE-2023-31125',  package: 'engine.io',              severity: 'HIGH',     title: 'engine.io DoS (2)',                    description: 'Denial of service via crafted request', fixedVersion: '6.4.2' },
+    { id: 'CVE-2022-41710',  package: 'markdownlint',           severity: 'HIGH',     title: 'markdownlint ReDoS',                   description: 'Regular expression denial of service', fixedVersion: '0.26.2' },
+    { id: 'CVE-2022-24434',  package: 'dicer',                  severity: 'HIGH',     title: 'dicer ReDoS',                          description: 'Regular expression denial of service in multipart', fixedVersion: null },
+    { id: 'CVE-2022-29078',  package: 'ejs',                    severity: 'HIGH',     title: 'EJS Server-Side Template Injection',   description: 'Server-side template injection via settings', fixedVersion: '3.1.7' },
+    { id: 'CVE-2023-29827',  package: 'ejs',                    severity: 'HIGH',     title: 'EJS Code Injection',                   description: 'Code injection via outputFunctionName', fixedVersion: '3.1.9' },
+    { id: 'CVE-2022-21670',  package: 'markdown-it',            severity: 'HIGH',     title: 'markdown-it ReDoS',                    description: 'Regular expression denial of service', fixedVersion: '12.3.2' },
+    { id: 'CVE-2021-23369',  package: 'handlebars',             severity: 'HIGH',     title: 'Handlebars Template Injection',        description: 'Remote code execution via template injection', fixedVersion: '4.7.7' },
+    { id: 'CVE-2021-23383',  package: 'handlebars',             severity: 'HIGH',     title: 'Handlebars Prototype Pollution',       description: 'Prototype pollution via template', fixedVersion: '4.7.7' },
+    { id: 'CVE-2022-0235',   package: 'node-fetch',             severity: 'HIGH',     title: 'node-fetch Exposure of Sensitive Info', description: 'Exposure of sensitive information via redirect', fixedVersion: '3.1.1' },
+    { id: 'CVE-2022-21704',  package: 'log4js',                 severity: 'HIGH',     title: 'log4js Arbitrary Code Execution',      description: 'Arbitrary code execution via log injection', fixedVersion: '6.4.0' },
+    { id: 'CVE-2023-26364',  package: 'adobe-css-tools',        severity: 'HIGH',     title: 'adobe-css-tools ReDoS',                description: 'Regular expression denial of service', fixedVersion: '4.3.1' },
+    { id: 'CVE-2022-3996',   package: 'openssl',                severity: 'HIGH',     title: 'OpenSSL Double-free',                  description: 'Double free after calling PEM_read_bio_ex', fixedVersion: '3.0.7' },
+    { id: 'CVE-2023-0286',   package: 'openssl',                severity: 'HIGH',     title: 'OpenSSL X.400 Type Confusion',         description: 'X.400 address type confusion in X.509 GeneralName', fixedVersion: '3.0.8' },
+    // Medium severity
+    { id: 'CVE-2023-44270',  package: 'postcss',                severity: 'MEDIUM',   title: 'PostCSS Line Return Parsing',          description: 'Incorrect parsing of CSS', fixedVersion: '8.4.31' },
+    { id: 'CVE-2023-28155',  package: 'request',                severity: 'MEDIUM',   title: 'request SSRF',                         description: 'Server-side request forgery via redirect', fixedVersion: null },
+    { id: 'CVE-2022-25883',  package: 'semver',                 severity: 'MEDIUM',   title: 'semver ReDoS',                         description: 'Regular expression denial of service', fixedVersion: '7.5.2' },
+    { id: 'CVE-2023-26920',  package: 'fast-xml-parser',        severity: 'MEDIUM',   title: 'fast-xml-parser Prototype Pollution',  description: 'Prototype pollution via attribute parsing', fixedVersion: '4.1.2' },
+    { id: 'CVE-2022-25912',  package: 'simple-git',             severity: 'MEDIUM',   title: 'simple-git Remote Code Execution',     description: 'Remote code execution via ext::sh', fixedVersion: '3.15.0' },
+    { id: 'CVE-2022-24066',  package: 'simple-git',             severity: 'MEDIUM',   title: 'simple-git Command Injection',         description: 'Command injection via git commands', fixedVersion: '3.5.0' },
+    { id: 'CVE-2022-21211',  package: 'posix',                  severity: 'MEDIUM',   title: 'posix Denial of Service',              description: 'Denial of service via SIGILL signal', fixedVersion: null },
+    { id: 'CVE-2022-25647',  package: 'gson',                   severity: 'MEDIUM',   title: 'Gson Deserialization',                 description: 'Deserialization of untrusted data', fixedVersion: '2.8.9' },
+    { id: 'CVE-2023-42282',  package: 'ip',                     severity: 'MEDIUM',   title: 'ip SSRF',                              description: 'Server-side request forgery via private IP bypass', fixedVersion: '2.0.1' },
+    { id: 'CVE-2023-46234',  package: 'browserify-sign',        severity: 'MEDIUM',   title: 'browserify-sign Upper Bound Check',    description: 'Upper bound check issue in dsaVerify', fixedVersion: '4.2.2' },
+    { id: 'CVE-2022-38900',  package: 'decode-uri-component',   severity: 'MEDIUM',   title: 'decode-uri-component DoS',             description: 'Denial of service via malformed URI', fixedVersion: '0.2.1' },
+    { id: 'CVE-2022-21189',  package: 'dexie',                  severity: 'MEDIUM',   title: 'dexie Prototype Pollution',            description: 'Prototype pollution via deepClone', fixedVersion: '3.2.2' },
+    { id: 'CVE-2022-0691',   package: 'url-parse',              severity: 'MEDIUM',   title: 'url-parse Authorization Bypass',       description: 'Authorization bypass via URL parsing', fixedVersion: '1.5.9' },
+    { id: 'CVE-2022-0686',   package: 'url-parse',              severity: 'MEDIUM',   title: 'url-parse Auth Bypass (2)',            description: 'Authorization bypass via hostname', fixedVersion: '1.5.8' },
+    { id: 'CVE-2021-27290',  package: 'ssri',                   severity: 'MEDIUM',   title: 'ssri ReDoS',                           description: 'Regular expression denial of service', fixedVersion: '8.0.1' },
+    { id: 'CVE-2021-33502',  package: 'normalize-url',          severity: 'MEDIUM',   title: 'normalize-url ReDoS',                  description: 'Regular expression denial of service', fixedVersion: '6.0.1' },
+    { id: 'CVE-2021-23343',  package: 'path-parse',             severity: 'MEDIUM',   title: 'path-parse ReDoS',                     description: 'Regular expression denial of service', fixedVersion: '1.0.7' },
+    { id: 'CVE-2021-3918',   package: 'json-schema',            severity: 'MEDIUM',   title: 'json-schema Prototype Pollution',      description: 'Prototype pollution via validate', fixedVersion: '0.4.0' },
+    { id: 'CVE-2022-3224',   package: 'parse-url',              severity: 'MEDIUM',   title: 'parse-url SSRF',                       description: 'Server-side request forgery', fixedVersion: '8.1.0' },
+    { id: 'CVE-2022-24723',  package: 'shescape',               severity: 'MEDIUM',   title: 'shescape Improper Escaping',           description: 'Improper escaping of shell arguments', fixedVersion: '1.5.1' },
+    { id: 'CVE-2022-21222',  package: 'css-what',               severity: 'MEDIUM',   title: 'css-what ReDoS',                       description: 'Regular expression denial of service', fixedVersion: '5.1.0' },
+    { id: 'CVE-2022-25845',  package: 'fastjson',               severity: 'MEDIUM',   title: 'fastjson Deserialization',             description: 'Deserialization of untrusted data', fixedVersion: '1.2.83' },
+    { id: 'CVE-2023-28370',  package: 'tornado',                severity: 'MEDIUM',   title: 'tornado Open Redirect',                description: 'Open redirect via crafted URL', fixedVersion: '6.3.2' },
+    { id: 'CVE-2022-40897',  package: 'setuptools',             severity: 'MEDIUM',   title: 'setuptools ReDoS',                     description: 'Regular expression denial of service', fixedVersion: '65.5.1' },
+    { id: 'CVE-2023-37920',  package: 'certifi',                severity: 'MEDIUM',   title: 'certifi Removed Root Cert',            description: 'Removal of e-Tugra root certificate', fixedVersion: '2023.7.22' },
+    { id: 'CVE-2022-23491',  package: 'certifi',                severity: 'MEDIUM',   title: 'certifi TrustCor Removal',             description: 'Removal of TrustCor root certificates', fixedVersion: '2022.12.7' },
 ];
 
 // ─── Scanner helpers ──────────────────────────────────────────────────────────
@@ -348,17 +433,37 @@ function scanIaCFile(filePath) {
 function scanPackageJson(filePath) {
     let pkg;
     try { pkg = JSON.parse(fs.readFileSync(filePath, 'utf8')); } catch { return []; }
-    const deps = { ...pkg.dependencies, ...pkg.devDependencies };
+    const deps = { ...pkg.dependencies, ...pkg.devDependencies, ...pkg.peerDependencies };
     const findings = [];
-    for (const [name, version] of Object.entries(deps)) {
-        const vuln = VULN_DB.find(v => v.package === name);
-        if (vuln) {
-            findings.push({
-                id: vuln.id, package: name, severity: vuln.severity,
-                title: vuln.title, description: vuln.description,
-                installedVersion: version.replace(/[\^~>=<]/g, ''),
-                fixedVersion: vuln.fixedVersion
-            });
+    for (const [name, rawVersion] of Object.entries(deps)) {
+        const installedVersion = (rawVersion || '').replace(/[\^~>=<\s]/g, '').split('||')[0].trim();
+        const vulns = VULN_DB.filter(v => v.package === name);
+        for (const vuln of vulns) {
+            // If we have a fixedVersion, only flag if installed < fixed
+            // Simple check: if fixedVersion exists and installed version string < fixed (lexicographic is imperfect but catches most cases)
+            // For a proper check we'd need semver — this is a best-effort heuristic
+            let shouldFlag = true;
+            if (vuln.fixedVersion && installedVersion) {
+                try {
+                    const installed = installedVersion.split('.').map(Number);
+                    const fixed = vuln.fixedVersion.split('.').map(Number);
+                    // Compare major.minor.patch
+                    for (let i = 0; i < 3; i++) {
+                        const a = installed[i] || 0;
+                        const b = fixed[i] || 0;
+                        if (a < b) { shouldFlag = true; break; }
+                        if (a > b) { shouldFlag = false; break; }
+                    }
+                } catch (_) { /* keep shouldFlag = true */ }
+            }
+            if (shouldFlag) {
+                findings.push({
+                    id: vuln.id, package: name, severity: vuln.severity,
+                    title: vuln.title, description: vuln.description,
+                    installedVersion: installedVersion || rawVersion,
+                    fixedVersion: vuln.fixedVersion
+                });
+            }
         }
     }
     return findings;
