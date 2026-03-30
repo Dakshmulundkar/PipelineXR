@@ -223,21 +223,55 @@ const requireAuth = (req, res, next) => {
     }
 };
 
-// API-specific auth middleware — returns 401 JSON instead of redirect
-const requireApiAuth = (req, res, next) => {
-    if (req.session.authenticated) {
-        next();
-    } else {
-        res.status(401).json({ error: 'Authentication required' });
+// API-specific auth middleware — accepts session (local dev) OR x-github-token header (Netlify production)
+const requireApiAuth = async (req, res, next) => {
+    // 1. Session-based auth (local dev / Railway direct)
+    if (req.session.authenticated) return next();
+
+    // 2. Token-based auth from Netlify (x-github-token header)
+    const ghToken = req.headers['x-github-token'];
+    if (ghToken) {
+        try {
+            // Verify token is valid by fetching GitHub user
+            const cached = _tokenUserCache.get(ghToken);
+            if (cached && Date.now() - cached.ts < 10 * 60 * 1000) {
+                req.session.user = cached.user;
+                req.session.authenticated = true;
+                return next();
+            }
+            const r = await fetch('https://api.github.com/user', {
+                headers: { Authorization: `Bearer ${ghToken}`, 'User-Agent': 'PipelineXR' }
+            });
+            if (!r.ok) throw new Error('Invalid token');
+            const ghUser = await r.json();
+            // Find or create user in DB
+            const dbUser = await analytics.upsertUser({
+                email:      ghUser.email || null,
+                github_id:  ghUser.id?.toString(),
+                avatar_url: ghUser.avatar_url,
+                name:       ghUser.name || ghUser.login,
+                last_login: new Date().toISOString(),
+            });
+            const user = { ...ghUser, dbId: dbUser?.id, isAdmin: resolvedAdminLogin === ghUser.login };
+            _tokenUserCache.set(ghToken, { user, ts: Date.now() });
+            req.session.user = user;
+            req.session.authenticated = true;
+            return next();
+        } catch (e) {
+            console.warn('[AUTH] Token validation failed:', e.message);
+        }
     }
+
+    res.status(401).json({ error: 'Authentication required' });
 };
+// Cache token→user lookups for 10 min to avoid hammering GitHub API
+const _tokenUserCache = new Map();
 
 // Initiate GitHub Login
 app.get('/auth/github', (req, res) => {
-    // Callback always goes to Railway (this server) to exchange the code for a token
-    const redirectUri = `https://${req.headers.host}/auth/github/callback`;
-    const githubAuthUrl = `https://github.com/login/oauth/authorize?client_id=${GITHUB_CLIENT_ID}&scope=repo,user:email&redirect_uri=${encodeURIComponent(redirectUri)}`;
-    console.log('GitHub OAuth URL:', githubAuthUrl);
+    // Callback goes to Railway to exchange the code, then Railway redirects to Netlify
+    const callbackUri = `https://${req.headers.host}/auth/github/callback`;
+    const githubAuthUrl = `https://github.com/login/oauth/authorize?client_id=${GITHUB_CLIENT_ID}&scope=repo,user:email&redirect_uri=${encodeURIComponent(callbackUri)}`;
     res.redirect(githubAuthUrl);
 });
 
@@ -532,8 +566,27 @@ app.post('/api/logs', (req, res) => {
 // API Routes (GitHub & Analytics)
 // --------------------------------------------------------------------------
 
-// Helper — extract userId from session, return null if not authenticated
+// Helper — extract userId from session (works for both session and token auth)
 const getUserId = (req) => req.session.user?.dbId || null;
+
+// POST /api/auth/sync-user — called by Netlify function after OAuth to register user in DB
+app.post('/api/auth/sync-user', async (req, res) => {
+    try {
+        const { github_id, login, name, email, avatar_url, token } = req.body;
+        if (!github_id || !token) return res.status(400).json({ error: 'Missing required fields' });
+        const dbUser = await analytics.upsertUser({
+            email: email || null,
+            github_id,
+            avatar_url,
+            name: name || login,
+            last_login: new Date().toISOString(),
+        });
+        res.json({ ok: true, userId: dbUser?.id });
+    } catch (e) {
+        console.error('[sync-user]', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
 
 // ── Sync throttle — skip GitHub API syncs done < 5 min ago per user+repo ──────
 const syncCache = new Map();
@@ -555,7 +608,7 @@ setInterval(() => {
 
 // Re-initialize GitHub service from session token for every API call if needed
 const ensureGithub = async (req) => {
-    const token = req.session.githubToken || process.env.GITHUB_TOKEN;
+    const token = req.headers['x-github-token'] || req.session.githubToken || process.env.GITHUB_TOKEN;
     if (token) await githubService.init(token);
     return token;
 };

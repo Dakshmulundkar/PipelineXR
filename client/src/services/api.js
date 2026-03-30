@@ -10,10 +10,19 @@ const apiInstance = axios.create({
     withCredentials: true,
 });
 
+// In production (Netlify auth), attach the GitHub token from localStorage to every Railway request
+apiInstance.interceptors.request.use((config) => {
+    const token = localStorage.getItem('gh_token');
+    if (token && API_ORIGIN) {
+        config.headers['x-github-token'] = token;
+    }
+    return config;
+});
+
 const get = (url) => apiInstance.get(url).then(res => res.data);
 
 export const api = {
-    // Auth - These are at root on server
+    // Auth
     login: () => { window.location.href = `${API_ORIGIN}/auth/github`; },
     logout: () => { window.location.href = `${API_ORIGIN}/auth/logout`; },
     checkAuth: () => get(`${API_ORIGIN}/auth/user`),

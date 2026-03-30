@@ -30,10 +30,14 @@ export const AppProvider = ({ children, isAuthenticated }) => {
     useEffect(() => {
         if (!isAuthenticated) return;
 
-        const socket = io(window.location.origin, {
+        // In production, Socket.io is on Railway. In dev, it's on the local proxy.
+        const socketUrl = import.meta.env.VITE_API_BASE_URL || window.location.origin;
+
+        const socket = io(socketUrl, {
             transports: ['websocket', 'polling'],
             reconnectionAttempts: 5,
             reconnectionDelay: 2000,
+            withCredentials: true,
         });
 
         socket.on('connect', () => console.log('🔌 Socket connected:', socket.id));
