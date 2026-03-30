@@ -54,7 +54,7 @@ export const AppProvider = ({ children, isAuthenticated }) => {
     useEffect(() => {
         if (!isAuthenticated) return;
 
-        // Try loading user from localStorage first (set by AuthCallback from Railway redirect)
+        // Load user from localStorage immediately (set by AuthCallback)
         const stored = localStorage.getItem('pxr_user');
         if (stored) {
             try {
@@ -64,24 +64,27 @@ export const AppProvider = ({ children, isAuthenticated }) => {
             } catch { /* ignore */ }
         }
 
-        // Always verify session is still alive with Railway (background, non-blocking)
-        api.checkAuth().then(res => {
-            if (res.authenticated && res.user) {
-                setUser(res.user);
-                setIsAdmin(res.isAdmin === true);
-                localStorage.setItem('pxr_user', JSON.stringify(res.user));
-            } else {
-                localStorage.removeItem('sf_auth');
-                localStorage.removeItem('pxr_user');
-                window.location.href = '/login';
-            }
-        }).catch(() => {
-            // Cross-origin session check failed — keep user logged in if we have stored data
-            if (!stored) {
-                localStorage.removeItem('sf_auth');
-                window.location.href = '/login';
-            }
-        });
+        // Background session verification — only redirects to login if
+        // the server explicitly says not authenticated AND we have no stored user.
+        // Never logs out due to network/CORS errors.
+        api.checkAuth()
+            .then(res => {
+                if (res.authenticated && res.user) {
+                    setUser(res.user);
+                    setIsAdmin(res.isAdmin === true);
+                    localStorage.setItem('pxr_user', JSON.stringify(res.user));
+                } else if (!stored) {
+                    // Server says not authenticated and we have nothing locally
+                    localStorage.removeItem('sf_auth');
+                    localStorage.removeItem('pxr_user');
+                    window.location.href = '/login';
+                }
+                // If server says not authenticated but we have stored user,
+                // keep them logged in (cross-origin session limitation)
+            })
+            .catch(() => {
+                // Network/CORS error — do NOT log out, user has valid stored session
+            });
 
         api.getRepos().then(data => {
             if (Array.isArray(data)) {
