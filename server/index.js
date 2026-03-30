@@ -113,7 +113,8 @@ app.use(session({
         secure: process.env.NODE_ENV === 'production',
         maxAge: 24 * 60 * 60 * 1000,
         httpOnly: true,
-        sameSite: 'lax'
+        // SameSite=None required for cross-origin requests from Netlify → Railway
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
     }
 }));
 

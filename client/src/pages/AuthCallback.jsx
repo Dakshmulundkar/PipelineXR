@@ -30,8 +30,7 @@ const AuthCallback = ({ onLogin }) => {
         setStatus('Verifying session...');
         const apiBase = import.meta.env.VITE_API_BASE_URL || '';
 
-        fetch(`${apiBase}/auth/user`, { credentials: 'include' })
-            .then(res => {
+        fetch(`${apiBase}/auth/user`, { credentials: 'include' })            .then(res => {
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 return res.json();
             })
