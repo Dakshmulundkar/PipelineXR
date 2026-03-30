@@ -1,0 +1,11 @@
+[phases.setup]
+nixPkgs = ["nodejs_20", "curl", "git"]
+
+[phases.install]
+cmds = ["npm install"]
+
+[phases.build]
+cmds = ["curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b ./bin || echo 'Trivy install skipped — TrivyLite fallback active'"]
+
+[start]
+cmd = "node server/index.js"
