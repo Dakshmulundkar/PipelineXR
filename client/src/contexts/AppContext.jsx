@@ -54,7 +54,7 @@ export const AppProvider = ({ children, isAuthenticated }) => {
     useEffect(() => {
         if (!isAuthenticated) return;
 
-        // Load user from localStorage immediately (set by AuthCallback)
+        // Load user from localStorage (set by AuthCallback after Netlify OAuth)
         const stored = localStorage.getItem('pxr_user');
         if (stored) {
             try {
@@ -64,38 +64,15 @@ export const AppProvider = ({ children, isAuthenticated }) => {
             } catch { /* ignore */ }
         }
 
-        // Background session verification — only redirects to login if
-        // the server explicitly says not authenticated AND we have no stored user.
-        // Never logs out due to network/CORS errors.
-        api.checkAuth()
-            .then(res => {
-                if (res.authenticated && res.user) {
-                    setUser(res.user);
-                    setIsAdmin(res.isAdmin === true);
-                    localStorage.setItem('pxr_user', JSON.stringify(res.user));
-                } else if (!stored) {
-                    // Server says not authenticated and we have nothing locally
-                    localStorage.removeItem('sf_auth');
-                    localStorage.removeItem('pxr_user');
-                    window.location.href = '/login';
-                }
-                // If server says not authenticated but we have stored user,
-                // keep them logged in (cross-origin session limitation)
-            })
-            .catch(() => {
-                // Network/CORS error — do NOT log out, user has valid stored session
-            });
-
+        // Fetch repos using the stored GitHub token via x-github-token header
         api.getRepos().then(data => {
             if (Array.isArray(data)) {
                 setRepos(data);
                 if (data.length > 0) {
                     setSelectedRepo(prev => prev || data[0].full_name);
-                } else {
-                    setSelectedRepo('');
                 }
             }
-        }).catch(() => { setSelectedRepo(''); });
+        }).catch(() => setSelectedRepo(''));
     }, [isAuthenticated]);
 
     // Start a background scan — safe to call from any page

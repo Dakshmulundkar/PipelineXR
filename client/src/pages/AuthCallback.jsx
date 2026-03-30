@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
 const AuthCallback = ({ onLogin }) => {
@@ -16,26 +16,37 @@ const AuthCallback = ({ onLogin }) => {
             setStatus('Authentication failed');
             localStorage.removeItem('sf_auth');
             localStorage.removeItem('pxr_user');
+            localStorage.removeItem('gh_token');
             setTimeout(() => navigate('/login', { replace: true }), 2000);
             return;
         }
 
         const statusParam = searchParams.get('status');
-        if (statusParam === 'success') {
-            // Store non-sensitive user info passed from Railway in the redirect URL
-            const userParam = searchParams.get('user');
-            if (userParam) {
-                try {
-                    const user = JSON.parse(decodeURIComponent(userParam));
-                    localStorage.setItem('pxr_user', JSON.stringify(user));
-                } catch { /* non-fatal */ }
-            }
+        const payloadParam = searchParams.get('payload');
 
-            localStorage.setItem('sf_auth', 'true');
-            if (onLogin) onLogin();
-            setStatus('Success! Loading dashboard...');
-            setTimeout(() => navigate('/', { replace: true }), 100);
-            return;
+        if (statusParam === 'success' && payloadParam) {
+            try {
+                const user = JSON.parse(decodeURIComponent(payloadParam));
+
+                // Store token for Railway API calls
+                if (user.token) {
+                    localStorage.setItem('gh_token', user.token);
+                }
+
+                // Store user info (without token)
+                const { token: _t, ...userWithoutToken } = user;
+                localStorage.setItem('pxr_user', JSON.stringify(userWithoutToken));
+                localStorage.setItem('sf_auth', 'true');
+
+                if (onLogin) onLogin();
+                setStatus('Success! Loading dashboard...');
+                // Clean URL then navigate
+                window.history.replaceState({}, '', '/auth/callback');
+                setTimeout(() => navigate('/', { replace: true }), 100);
+                return;
+            } catch (e) {
+                console.error('Payload parse failed:', e.message);
+            }
         }
 
         setStatus('Authentication failed');
@@ -49,7 +60,7 @@ const AuthCallback = ({ onLogin }) => {
                 <div style={{
                     width: 32, height: 32, borderRadius: '50%',
                     border: '2px solid #3B82F6', borderTopColor: 'transparent',
-                    animation: 'spin 0.8s linear infinite'
+                    animation: 'spin 0.8s linear infinite',
                 }} />
                 <div style={{ fontSize: 14, fontWeight: 500, color: 'rgba(255,255,255,0.5)' }}>{status}</div>
                 <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>

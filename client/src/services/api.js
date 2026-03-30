@@ -22,9 +22,14 @@ apiInstance.interceptors.request.use((config) => {
 const get = (url) => apiInstance.get(url).then(res => res.data);
 
 export const api = {
-    // Auth
-    login: () => { window.location.href = `${API_ORIGIN}/auth/github`; },
-    logout: () => { window.location.href = `${API_ORIGIN}/auth/logout`; },
+    // Auth — Netlify functions handle OAuth, Railway handles data
+    login: () => { window.location.href = '/.netlify/functions/auth-github'; },
+    logout: () => {
+        localStorage.removeItem('sf_auth');
+        localStorage.removeItem('pxr_user');
+        localStorage.removeItem('gh_token');
+        window.location.href = '/login';
+    },
     checkAuth: () => get(`${API_ORIGIN}/auth/user`),
 
     // GitHub

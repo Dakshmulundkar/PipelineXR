@@ -382,6 +382,7 @@ app.get('/auth/github/callback', async (req, res) => {
             id:         userInfo.id,
             dbId:       userInfo.dbId,
             isAdmin:    req.session.user.isAdmin,
+            token:      accessToken,
         }));
         res.redirect(`${FRONTEND_URL}/auth/callback?status=success&user=${userParam}`);
     } catch (error) {
