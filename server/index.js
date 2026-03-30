@@ -234,10 +234,10 @@ const requireApiAuth = (req, res, next) => {
 
 // Initiate GitHub Login
 app.get('/auth/github', (req, res) => {
-    const redirectUri = `${FRONTEND_URL}/auth/github/callback`;
+    // Callback always goes to Railway (this server) to exchange the code for a token
+    const redirectUri = `https://${req.headers.host}/auth/github/callback`;
     const githubAuthUrl = `https://github.com/login/oauth/authorize?client_id=${GITHUB_CLIENT_ID}&scope=repo,user:email&redirect_uri=${encodeURIComponent(redirectUri)}`;
     console.log('GitHub OAuth URL:', githubAuthUrl);
-    console.log('Redirect URI:', redirectUri);
     res.redirect(githubAuthUrl);
 });
 
@@ -249,13 +249,12 @@ app.get('/auth/github/callback', async (req, res) => {
 
     if (error) {
         console.error('GitHub OAuth error:', error);
-        // Don't reflect raw OAuth error strings into the redirect — use a safe generic message
-        return res.redirect(`/login.html?error=oauth_error`);
+        return res.redirect(`${FRONTEND_URL}/login?error=oauth_error`);
     }
 
     if (!code) {
         console.error('No authorization code received');
-        return res.redirect(`/login.html?error=no_code`);
+        return res.redirect(`${FRONTEND_URL}/login?error=no_code`);
     }
 
     try {
@@ -280,12 +279,12 @@ app.get('/auth/github/callback', async (req, res) => {
 
         if (tokenData.error) {
             console.error('GitHub Token Error:', tokenData.error);
-            return res.redirect(`/login.html?error=token_error`);
+            return res.redirect(`${FRONTEND_URL}/login?error=token_error`);
         }
 
         if (!tokenData.access_token) {
             console.error('No access token received:', tokenData);
-            return res.redirect(`/login.html?error=no_token`);
+            return res.redirect(`${FRONTEND_URL}/login?error=no_token`);
         }
 
         const accessToken = tokenData.access_token;
