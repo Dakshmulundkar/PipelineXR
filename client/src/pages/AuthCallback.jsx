@@ -21,7 +21,8 @@ const AuthCallback = ({ onLogin }) => {
 
         // Always verify session server-side — never trust URL params for tokens
         setTimeout(() => setStatus('Verifying session...'), 0);
-        fetch('/auth/user', { credentials: 'include' })
+        const apiBase = import.meta.env.VITE_API_BASE_URL || '';
+        fetch(`${apiBase}/auth/user`, { credentials: 'include' })
             .then(res => {
                 if (res.ok) return res.json();
                 throw new Error('Not authenticated');

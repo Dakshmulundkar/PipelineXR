@@ -139,7 +139,7 @@ const Login = () => {
                     </p>
 
                     <a
-                        href="/auth/github"
+                        href={`${import.meta.env.VITE_API_BASE_URL || ''}/auth/github`}
                         style={{
                             width: '100%',
                             background: '#fff',

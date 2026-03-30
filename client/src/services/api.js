@@ -14,9 +14,9 @@ const get = (url) => apiInstance.get(url).then(res => res.data);
 
 export const api = {
     // Auth - These are at root on server
-    login: () => { window.location.href = `/auth/github`; },
-    logout: () => { window.location.href = `/auth/logout`; },
-    checkAuth: () => get(`/auth/user`),
+    login: () => { window.location.href = `${API_ORIGIN}/auth/github`; },
+    logout: () => { window.location.href = `${API_ORIGIN}/auth/logout`; },
+    checkAuth: () => get(`${API_ORIGIN}/auth/user`),
 
     // GitHub
     getRepos: () => get(`${API_BASE}/github/user/repos`),
