@@ -32,5 +32,8 @@ export function cacheSet(namespace, repo, data, extra = '') {
 export function cacheClear(namespace, repo, extra = '') {
     try {
         sessionStorage.removeItem(cacheKey(namespace, repo, extra));
-    } catch {}
+    } catch (e) {
+        // sessionStorage unavailable — ignore
+        void e;
+    }
 }

@@ -10,6 +10,7 @@ import ChartCard from '../components/ChartCard';
 import { api } from '../services/api';
 import { useAppContext } from '../contexts/AppContext';
 import { cacheGet, cacheSet } from '../services/cache';
+import AiInsightPanel from '../components/AiInsightPanel';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Title, Tooltip, Legend, Filler);
 
@@ -298,14 +299,14 @@ const Metrics = () => {
                 };
 
                 setCharts(newCharts);
+
+                // Cache for instant re-render on next visit
+                cacheSet('metrics', selectedRepo, { metricsData: data, charts: newCharts }, r);
             }
 
             api.getSecuritySummary(selectedRepo || null)
                 .then(d => setSecSummary(d))
                 .catch(() => setSecSummary({ critical: 0, high: 0, medium: 0, low: 0, total: 0 }));
-
-            // Cache for instant re-render on next visit
-            cacheSet('metrics', selectedRepo, { metricsData: data, charts: newCharts }, r);
 
         } catch (e) {
             if (e.name !== 'AbortError') console.error(e);
@@ -467,9 +468,18 @@ const Metrics = () => {
             </div>
             )}
 
-            {/* Datadog Live Metrics */}
-            {ddEnabled && (
+            {/* AI DORA Insights */}
+            {selectedRepo && !loading && metricsData && (
                 <div style={{ marginTop: 32 }}>
+                    <AiInsightPanel
+                        title="AI DORA Insights"
+                        onFetch={() => api.getDoraInsights(selectedRepo, range)}
+                    />
+                </div>
+            )}
+
+            {/* Datadog Live Metrics */}
+            {ddEnabled && (                <div style={{ marginTop: 32 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
                         <Database size={16} color="#7C3AED" />
                         <span style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>Datadog — PipelineXR Metrics</span>

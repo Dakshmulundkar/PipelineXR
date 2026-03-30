@@ -11,6 +11,7 @@ import {
 } from 'chart.js';
 import { api } from '../services/api';
 import { useAppContext } from '../contexts/AppContext';
+import AiInsightPanel from '../components/AiInsightPanel';
 
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, PointElement, LineElement, Filler);
 
@@ -199,8 +200,6 @@ const Security = () => {
     const { selectedRepo, scanState, startScan } = useAppContext();
     const [expandedVuln, setExpandedVuln] = useState(null);
     const [activeTab, setActiveTab] = useState('ALL');
-    const [insight, setInsight] = useState(null);
-    const [insightLoading, setInsightLoading] = useState(false);
     const [trendData, setTrendData] = useState(null);
 
     const { isScanning, repoScanned, results, security_metrics, risk_score, risk_level, engine, error } = scanState;
@@ -209,16 +208,6 @@ const Security = () => {
         if (!selectedRepo) return;
         if (repoScanned !== selectedRepo && !isScanning) startScan(selectedRepo);
     }, [selectedRepo]); // eslint-disable-line react-hooks/exhaustive-deps
-
-    useEffect(() => {
-        if (!selectedRepo) return;
-        const controller = new AbortController();
-        setTimeout(() => setInsightLoading(true), 0);
-        api.getSecurityInsights(selectedRepo)
-            .then(d => { setInsight(d.insight); setInsightLoading(false); })
-            .catch(() => setInsightLoading(false));
-        return () => controller.abort();
-    }, [selectedRepo]);
 
     const handleRefresh = () => startScan(selectedRepo);
 
@@ -427,15 +416,11 @@ const Security = () => {
                             </div>
                         </div>
                     ))}
-                    <div style={{ flex: 1, background: 'linear-gradient(135deg, rgba(59,130,246,0.1) 0%, rgba(124,58,237,0.1) 100%)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: 24, padding: 24, display: 'flex', alignItems: 'center', gap: 20 }}>
-                        <div style={{ width: 56, height: 56, borderRadius: '50%', background: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Zap size={28} className="text-purple-400" /></div>
-                        <div>
-                            <div style={{ fontSize: 16, fontWeight: 800, color: '#fff' }}>Gemini AI Insights</div>
-                            {insightLoading
-                                ? <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)', marginTop: 4 }} className="animate-pulse">Analyzing vulnerability context...</div>
-                                : <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)', marginTop: 4, lineHeight: 1.5 }}>{insight || 'Connect the Gemini API to generate AI remediation steps.'}</div>
-                            }
-                        </div>
+                    <div style={{ flex: 1, background: 'linear-gradient(135deg, rgba(59,130,246,0.1) 0%, rgba(124,58,237,0.1) 100%)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: 24, padding: 24 }}>
+                        <AiInsightPanel
+                            title="AI Security Review"
+                            onFetch={() => api.getSecurityReview(selectedRepo)}
+                        />
                     </div>
                 </div>
             </div>

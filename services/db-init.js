@@ -291,6 +291,33 @@ async function initializeDatabase() {
                 used BOOLEAN DEFAULT FALSE,
                 created_at TIMESTAMPTZ DEFAULT NOW()
             );
+
+            CREATE TABLE IF NOT EXISTS llm_insights (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER,
+                repository TEXT,
+                insight_type TEXT NOT NULL,
+                source TEXT NOT NULL,
+                input_hash TEXT,
+                data JSONB NOT NULL,
+                latency_ms INTEGER,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            );
+
+            CREATE TABLE IF NOT EXISTS llm_emails (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER,
+                email_type TEXT NOT NULL,
+                repository TEXT,
+                subject TEXT,
+                body_html TEXT,
+                body_text TEXT,
+                urgency TEXT,
+                sent BOOLEAN DEFAULT FALSE,
+                sent_at TIMESTAMPTZ,
+                source TEXT,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            );
         `);
 
         // Indexes (IF NOT EXISTS is safe to re-run)
@@ -308,6 +335,8 @@ async function initializeDatabase() {
             CREATE INDEX IF NOT EXISTS idx_ids_events_ip ON ids_events(ip);
             CREATE INDEX IF NOT EXISTS idx_workflow_jobs_user_job ON workflow_jobs(user_id, job_id);
             CREATE INDEX IF NOT EXISTS idx_job_steps_user_job_num ON job_steps(user_id, job_id, number);
+            CREATE INDEX IF NOT EXISTS idx_llm_insights_repo ON llm_insights(repository, insight_type);
+            CREATE INDEX IF NOT EXISTS idx_llm_emails_repo ON llm_emails(repository, email_type);
         `);
 
         console.log('[DB] Schema initialized successfully');

@@ -177,7 +177,7 @@ let analytics, webhookService, realtimeService;
 
 // Initialize Gemini AI
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
-const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-lite' });
 
 
 // --------------------------------------------------------------------------
@@ -940,21 +940,177 @@ app.get('/api/security/insights', async (req, res) => {
         const { repository } = req.query;
         if (!repository) return res.status(400).json({ error: 'repository is required' });
         const vulnerabilities = await securityService.getVulnerabilities(repository, userId);
-        
+
         if (!vulnerabilities || vulnerabilities.length === 0) {
             return res.json({ insight: "No vulnerabilities detected. Posture is clean." });
         }
-        if (!process.env.GEMINI_API_KEY) return res.json({ insight: "Connect Gemini for AI analysis." });
 
-        // Only send sanitized, minimal data to the AI — never raw user-controlled strings
-        const safeVulns = vulnerabilities.slice(0, 5).map(v => ({
-            id: v.cve_id, severity: v.severity, package: v.package_name, fixed: v.fixed_version
-        }));
-        const prompt = `You are a security analyst. Summarize these vulnerabilities and suggest remediation steps: ${JSON.stringify(safeVulns)}`;
-        const result = await model.generateContent(prompt);
-        res.json({ insight: (await result.response).text() });
+        // Use unified LLM service (HF → Gemini → static)
+        const llm = require('../services/ai/llm');
+        const result = await llm.securityReview(repository, vulnerabilities);
+
+        // Persist insight to DB (fire-and-forget)
+        const db = require('../services/database');
+        const crypto = require('crypto');
+        const inputHash = crypto.createHash('md5').update(JSON.stringify(vulnerabilities.map(v => v.id))).digest('hex');
+        db.run(
+            `INSERT INTO llm_insights (user_id, repository, insight_type, source, input_hash, data, latency_ms)
+             VALUES (?, ?, 'security_review', ?, ?, ?, ?)`,
+            [userId, repository, result.source, inputHash, JSON.stringify(result.data), result.latency_ms],
+            () => {}
+        );
+
+        res.json({ insight: result.data?.risk_summary || JSON.stringify(result.data), llm: result.data, source: result.source });
     } catch (error) {
         res.status(500).json({ insight: "Insight generation failed." });
+    }
+});
+
+// ── LLM Routes ────────────────────────────────────────────────────────────────
+
+// POST /api/ai/security-review — full LLM security analysis
+app.post('/api/ai/security-review', expensiveLimiter, async (req, res) => {
+    try {
+        const userId = getUserId(req); if (!userId) return res.status(401).json({ error: 'Authentication required' });
+        const { repository } = req.body;
+        if (!repository) return res.status(400).json({ error: 'repository is required' });
+        const vulnerabilities = await securityService.getVulnerabilities(repository, userId);
+        const llm = require('../services/ai/llm');
+        const result = await llm.securityReview(repository, vulnerabilities);
+        res.json(result);
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
+// POST /api/ai/pipeline-email — generate failure email for a run
+app.post('/api/ai/pipeline-email', expensiveLimiter, async (req, res) => {
+    try {
+        const userId = getUserId(req); if (!userId) return res.status(401).json({ error: 'Authentication required' });
+        const { run_id, failed_steps = [] } = req.body;
+        if (!run_id) return res.status(400).json({ error: 'run_id is required' });
+
+        const db = require('../services/database');
+        const run = await new Promise((resolve, reject) =>
+            db.get(`SELECT * FROM workflow_runs WHERE run_id = ? AND user_id = ?`, [run_id, userId], (e, r) => e ? reject(e) : resolve(r))
+        );
+        if (!run) return res.status(404).json({ error: 'Run not found' });
+
+        const llm = require('../services/ai/llm');
+        const result = await llm.pipelineFailureEmail(run, failed_steps);
+
+        // Persist email
+        db.run(
+            `INSERT INTO llm_emails (user_id, email_type, repository, subject, body_html, body_text, urgency, source)
+             VALUES (?, 'pipeline_failure', ?, ?, ?, ?, ?, ?)`,
+            [userId, run.repository, result.data?.subject, result.data?.body_html, result.data?.body_text, result.data?.urgency, result.source],
+            () => {}
+        );
+
+        res.json(result);
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
+// POST /api/ai/monitor-email — generate alert email for a monitored site
+app.post('/api/ai/monitor-email', expensiveLimiter, async (req, res) => {
+    try {
+        const userId = getUserId(req); if (!userId) return res.status(401).json({ error: 'Authentication required' });
+        const { site_id } = req.body;
+        if (!site_id) return res.status(400).json({ error: 'site_id is required' });
+
+        const db = require('../services/database');
+        const site = await new Promise((resolve, reject) =>
+            db.get(`SELECT * FROM monitored_sites WHERE id = ? AND user_id = ?`, [site_id, userId], (e, r) => e ? reject(e) : resolve(r))
+        );
+        if (!site) return res.status(404).json({ error: 'Site not found' });
+
+        const check = await new Promise((resolve) =>
+            db.get(`SELECT * FROM uptime_checks WHERE site_id = ? ORDER BY checked_at DESC LIMIT 1`, [site_id], (e, r) => resolve(r || {}))
+        );
+
+        const llm = require('../services/ai/llm');
+        const result = await llm.monitorAlertEmail(site, check);
+
+        db.run(
+            `INSERT INTO llm_emails (user_id, email_type, subject, body_html, body_text, urgency, source)
+             VALUES (?, 'monitor_alert', ?, ?, ?, ?, ?)`,
+            [userId, result.data?.subject, result.data?.body_html, result.data?.body_text, result.data?.severity, result.source],
+            () => {}
+        );
+
+        res.json(result);
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
+// GET /api/ai/dora-insights/:repo — AI analysis of DORA metrics
+app.get('/api/ai/dora-insights/:repo', expensiveLimiter, async (req, res) => {
+    try {
+        const userId = getUserId(req); if (!userId) return res.status(401).json({ error: 'Authentication required' });
+        const repo = decodeURIComponent(req.params.repo);
+        const range = req.query.range || '7d';
+        const metricsData = await metricsService.getDoraMetrics(repo, range === '24h' ? 1 : range === '30d' ? 30 : 7, userId);
+        const llm = require('../services/ai/llm');
+        const result = await llm.doraInsights(repo, metricsData, range);
+
+        const db = require('../services/database');
+        db.run(
+            `INSERT INTO llm_insights (user_id, repository, insight_type, source, data, latency_ms)
+             VALUES (?, ?, 'dora_insights', ?, ?, ?)`,
+            [userId, repo, result.source, JSON.stringify(result.data), result.latency_ms],
+            () => {}
+        );
+
+        res.json(result);
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
+// POST /api/ai/incident-response — incident response guidance
+app.post('/api/ai/incident-response', expensiveLimiter, async (req, res) => {
+    try {
+        const userId = getUserId(req); if (!userId) return res.status(401).json({ error: 'Authentication required' });
+        const { title, severity, affected_service, symptoms = [], recent_changes = [], error_logs = [] } = req.body;
+        if (!title) return res.status(400).json({ error: 'title is required' });
+        const llm = require('../services/ai/llm');
+        const result = await llm.incidentResponse({ title, severity, affected_service, symptoms, recent_changes, error_logs });
+        res.json(result);
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
+// GET /api/ai/emails — list generated emails for current user
+app.get('/api/ai/emails', async (req, res) => {
+    try {
+        const userId = getUserId(req); if (!userId) return res.status(401).json({ error: 'Authentication required' });
+        const db = require('../services/database');
+        db.all(
+            `SELECT id, email_type, repository, subject, urgency, sent, source, created_at FROM llm_emails WHERE user_id = ? ORDER BY created_at DESC LIMIT 50`,
+            [userId],
+            (e, rows) => e ? res.status(500).json({ error: e.message }) : res.json(rows || [])
+        );
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
+// GET /api/ai/health — check HF Space connectivity
+app.get('/api/ai/health', async (req, res) => {
+    const hfUrl = process.env.HF_SPACE_URL;
+    if (!hfUrl) return res.json({ hf: false, gemini: Boolean(process.env.GEMINI_API_KEY), hf_url: null });
+    try {
+        const controller = new AbortController();
+        setTimeout(() => controller.abort(), 5000);
+        const r = await fetch(`${hfUrl}/health`, { signal: controller.signal });
+        const data = await r.json();
+        res.json({ hf: true, hf_status: data, gemini: Boolean(process.env.GEMINI_API_KEY), hf_url: hfUrl });
+    } catch (e) {
+        res.json({ hf: false, hf_error: e.message, gemini: Boolean(process.env.GEMINI_API_KEY), hf_url: hfUrl });
     }
 });
 

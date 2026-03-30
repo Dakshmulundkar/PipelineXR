@@ -124,6 +124,15 @@ export const api = {
     sendMonitorVerification: (url, email) => apiInstance.post(`${API_BASE}/monitor/verify/send`, { url, email }).then(r => r.data),
     confirmMonitorVerification: (url, email, code) => apiInstance.post(`${API_BASE}/monitor/verify/confirm`, { url, email, code }).then(r => r.data),
 
+    // AI / LLM
+    getAiHealth: () => get(`${API_BASE}/ai/health`),
+    getSecurityReview: (repository) => apiInstance.post(`${API_BASE}/ai/security-review`, { repository }).then(r => r.data),
+    getPipelineEmail: (run_id, failed_steps = []) => apiInstance.post(`${API_BASE}/ai/pipeline-email`, { run_id, failed_steps }).then(r => r.data),
+    getMonitorEmail: (site_id) => apiInstance.post(`${API_BASE}/ai/monitor-email`, { site_id }).then(r => r.data),
+    getDoraInsights: (repo, range = '7d') => get(`${API_BASE}/ai/dora-insights/${encodeURIComponent(repo)}?range=${range}`),
+    getIncidentResponse: (incident) => apiInstance.post(`${API_BASE}/ai/incident-response`, incident).then(r => r.data),
+    getAiEmails: () => get(`${API_BASE}/ai/emails`),
+
     // IDS — Intrusion Detection (admin only)
     getIdsEvents: (limit = 100) => get(`${API_BASE}/ids/events?limit=${limit}`),
     getIdsBlocked: () => get(`${API_BASE}/ids/blocked`),

@@ -233,6 +233,7 @@ export default function Monitoring() {
             setStats(null);
             setIncidents([]);
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [selected?.id, range.hours, loadDetail]); // use selected.id not selected object to avoid re-runs on is_up refresh
 
     // Auto-refresh every 60s — use a ref for selected so the interval always has the latest value

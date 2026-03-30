@@ -401,15 +401,14 @@ const Pipelines = () => {
 
                                 {/* Stage bar */}
                                 <div style={{ flex: 1.5, display: 'flex', gap: 6 }}>
-                                    {stages.length > 0 ? (
-                                        <PipelineStageBar stages={stages} />
-                                    ) : (
-                                        <div style={{ display: 'flex', gap: 4, width: '100%', alignItems: 'center' }}>
-                                            {[1, 1, 1, 0.5, 0].map((v, idx) => (
-                                                <div key={idx} style={{ flex: 1, height: 4, background: v === 1 ? '#34D399' : v === 0.5 ? '#60A5FA' : 'rgba(255,255,255,0.05)', borderRadius: 2 }} />
-                                            ))}
-                                        </div>
-                                    )}
+                                    <PipelineStageBar
+                                        stages={stages.length > 0 ? stages : [
+                                            { name: 'Build',    status: status },
+                                            { name: 'Security', status: 'pending' },
+                                            { name: 'Test',     status: 'pending' },
+                                            { name: 'Deploy',   status: 'pending' },
+                                        ]}
+                                    />
                                 </div>
 
                                 {/* External link */}
