@@ -54,17 +54,33 @@ export const AppProvider = ({ children, isAuthenticated }) => {
     useEffect(() => {
         if (!isAuthenticated) return;
 
+        // Try loading user from localStorage first (set by AuthCallback from Railway redirect)
+        const stored = localStorage.getItem('pxr_user');
+        if (stored) {
+            try {
+                const u = JSON.parse(stored);
+                setUser(u);
+                setIsAdmin(u.isAdmin === true);
+            } catch { /* ignore */ }
+        }
+
+        // Always verify session is still alive with Railway (background, non-blocking)
         api.checkAuth().then(res => {
             if (res.authenticated && res.user) {
                 setUser(res.user);
                 setIsAdmin(res.isAdmin === true);
+                localStorage.setItem('pxr_user', JSON.stringify(res.user));
             } else {
                 localStorage.removeItem('sf_auth');
+                localStorage.removeItem('pxr_user');
                 window.location.href = '/login';
             }
         }).catch(() => {
-            localStorage.removeItem('sf_auth');
-            window.location.href = '/login';
+            // Cross-origin session check failed — keep user logged in if we have stored data
+            if (!stored) {
+                localStorage.removeItem('sf_auth');
+                window.location.href = '/login';
+            }
         });
 
         api.getRepos().then(data => {

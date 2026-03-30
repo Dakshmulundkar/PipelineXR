@@ -372,9 +372,18 @@ app.get('/auth/github/callback', async (req, res) => {
             console.error('Failed to auto-fetch repos:', repoError);
         }
 
-        // 6. Redirect to Dashboard — token stays in session, NOT in URL
+        // 6. Redirect to Dashboard — pass non-sensitive user info in URL so
+        //    Netlify frontend doesn't need a cross-origin session check
         console.log('Redirecting to dashboard...');
-        res.redirect(`${FRONTEND_URL}/auth/callback?status=success`);
+        const userParam = encodeURIComponent(JSON.stringify({
+            login:      userInfo.login,
+            name:       userInfo.name || userInfo.login,
+            avatar_url: userInfo.avatar_url,
+            id:         userInfo.id,
+            dbId:       userInfo.dbId,
+            isAdmin:    req.session.user.isAdmin,
+        }));
+        res.redirect(`${FRONTEND_URL}/auth/callback?status=success&user=${userParam}`);
     } catch (error) {
         console.error('GitHub OAuth error:', error.message);
         res.redirect(`${FRONTEND_URL}/auth/callback?error=oauth_failed`);

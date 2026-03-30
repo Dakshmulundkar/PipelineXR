@@ -5,7 +5,7 @@ const AuthCallback = ({ onLogin }) => {
     const [searchParams] = useSearchParams();
     const navigate = useNavigate();
     const [status, setStatus] = useState('Authenticating...');
-    const ran = useRef(false); // prevent double-run in React StrictMode
+    const ran = useRef(false);
 
     useEffect(() => {
         if (ran.current) return;
@@ -15,43 +15,32 @@ const AuthCallback = ({ onLogin }) => {
         if (err) {
             setStatus('Authentication failed');
             localStorage.removeItem('sf_auth');
+            localStorage.removeItem('pxr_user');
             setTimeout(() => navigate('/login', { replace: true }), 2000);
             return;
         }
 
         const statusParam = searchParams.get('status');
-        if (statusParam !== 'success') {
-            setStatus('No auth data received');
-            setTimeout(() => navigate('/login', { replace: true }), 2000);
+        if (statusParam === 'success') {
+            // Store non-sensitive user info passed from Railway in the redirect URL
+            const userParam = searchParams.get('user');
+            if (userParam) {
+                try {
+                    const user = JSON.parse(decodeURIComponent(userParam));
+                    localStorage.setItem('pxr_user', JSON.stringify(user));
+                } catch { /* non-fatal */ }
+            }
+
+            localStorage.setItem('sf_auth', 'true');
+            if (onLogin) onLogin();
+            setStatus('Success! Loading dashboard...');
+            setTimeout(() => navigate('/', { replace: true }), 100);
             return;
         }
 
-        // status=success — verify the session is actually alive on the backend
-        setStatus('Verifying session...');
-        const apiBase = import.meta.env.VITE_API_BASE_URL || '';
-
-        fetch(`${apiBase}/auth/user`, { credentials: 'include' })            .then(res => {
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                return res.json();
-            })
-            .then(data => {
-                if (data.authenticated && data.user) {
-                    // Mark authenticated BEFORE navigating so App.jsx sees it
-                    localStorage.setItem('sf_auth', 'true');
-                    if (onLogin) onLogin();
-                    setStatus('Success! Loading dashboard...');
-                    // Small delay so React state update propagates before route change
-                    setTimeout(() => navigate('/', { replace: true }), 100);
-                } else {
-                    throw new Error('Session not valid');
-                }
-            })
-            .catch(e => {
-                console.error('[AuthCallback] Session check failed:', e.message);
-                localStorage.removeItem('sf_auth');
-                setStatus('Session verification failed — please try again');
-                setTimeout(() => navigate('/login', { replace: true }), 2500);
-            });
+        setStatus('Authentication failed');
+        localStorage.removeItem('sf_auth');
+        setTimeout(() => navigate('/login', { replace: true }), 2000);
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     return (
