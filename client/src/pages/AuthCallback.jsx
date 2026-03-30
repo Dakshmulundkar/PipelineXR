@@ -22,30 +22,33 @@ const AuthCallback = ({ onLogin }) => {
         }
 
         const statusParam = searchParams.get('status');
-        const payloadParam = searchParams.get('payload');
 
-        if (statusParam === 'success' && payloadParam) {
+        // Railway passes user info in ?user= param
+        // Netlify function passes it in ?payload= param
+        const rawParam = searchParams.get('user') || searchParams.get('payload');
+
+        if (statusParam === 'success' && rawParam) {
             try {
-                const user = JSON.parse(decodeURIComponent(payloadParam));
+                const user = JSON.parse(decodeURIComponent(rawParam));
 
-                // Store token for Railway API calls
+                // Store GitHub token for Railway API calls via x-github-token header
                 if (user.token) {
                     localStorage.setItem('gh_token', user.token);
                 }
 
-                // Store user info (without token)
+                // Store user info without token
                 const { token: _t, ...userWithoutToken } = user;
                 localStorage.setItem('pxr_user', JSON.stringify(userWithoutToken));
                 localStorage.setItem('sf_auth', 'true');
 
                 if (onLogin) onLogin();
                 setStatus('Success! Loading dashboard...');
-                // Clean URL then navigate
+                // Clean the URL so token doesn't stay in browser history
                 window.history.replaceState({}, '', '/auth/callback');
                 setTimeout(() => navigate('/', { replace: true }), 100);
                 return;
             } catch (e) {
-                console.error('Payload parse failed:', e.message);
+                console.error('Auth payload parse failed:', e.message);
             }
         }
 

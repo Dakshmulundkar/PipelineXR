@@ -54,7 +54,7 @@ export const AppProvider = ({ children, isAuthenticated }) => {
     useEffect(() => {
         if (!isAuthenticated) return;
 
-        // Load user from localStorage (set by AuthCallback after Netlify OAuth)
+        // Load user from localStorage (set by AuthCallback)
         const stored = localStorage.getItem('pxr_user');
         if (stored) {
             try {
@@ -64,7 +64,7 @@ export const AppProvider = ({ children, isAuthenticated }) => {
             } catch { /* ignore */ }
         }
 
-        // Fetch repos using the stored GitHub token via x-github-token header
+        // Fetch repos — uses gh_token via x-github-token header interceptor
         api.getRepos().then(data => {
             if (Array.isArray(data)) {
                 setRepos(data);
