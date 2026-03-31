@@ -5,7 +5,11 @@ nixPkgs = ["nodejs_20", "curl", "git"]
 cmds = ["npm install"]
 
 [phases.build]
-cmds = ["curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b ./bin || echo 'Trivy install skipped — TrivyLite fallback active'"]
+cmds = [
+  "mkdir -p ./bin",
+  "curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b ./bin && echo '[TRIVY] Binary installed at ./bin/trivy' || echo '[TRIVY] Install failed — TrivyLite fallback will be used'",
+  "ls -la ./bin/ || echo '[TRIVY] bin/ directory empty'"
+]
 
 [start]
 cmd = "node server/index.js"

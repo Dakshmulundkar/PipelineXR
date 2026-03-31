@@ -34,19 +34,30 @@ const TRIVY_BIN_LOCAL = path.join(
     process.platform === 'win32' ? 'trivy.exe' : 'trivy'
 );
 
+// Also check common system paths where nixpacks might install trivy
+const TRIVY_SYSTEM_PATHS = [
+    '/usr/local/bin/trivy',
+    '/usr/bin/trivy',
+    '/nix/var/nix/profiles/default/bin/trivy',
+];
+
 /**
- * Returns true if the Trivy binary exists at ./bin/trivy.
- * Pure filesystem check — no side effects.
+ * Returns the path to the Trivy binary, or null if not found.
+ * Checks ./bin/trivy first, then common system paths.
  */
-function isBinaryAvailable() {
-    return fs.existsSync(TRIVY_BIN_LOCAL);
+function getBinaryPath() {
+    if (fs.existsSync(TRIVY_BIN_LOCAL)) return TRIVY_BIN_LOCAL;
+    for (const p of TRIVY_SYSTEM_PATHS) {
+        if (fs.existsSync(p)) return p;
+    }
+    return null;
 }
 
 /**
- * Returns the resolved binary path, or null if not installed.
+ * Returns true if the Trivy binary exists anywhere on the system.
  */
-function getBinaryPath() {
-    return isBinaryAvailable() ? TRIVY_BIN_LOCAL : null;
+function isBinaryAvailable() {
+    return getBinaryPath() !== null;
 }
 
 /**
