@@ -96,9 +96,14 @@ app.use(express.text()); // For raw log ingestion
 app.use(session({
     store: new pgSession({
         pool: new Pool({
-            connectionString: process.env.DATABASE_URL,
-            ssl: process.env.DATABASE_URL && process.env.DATABASE_URL.includes('localhost')
-                ? false : { rejectUnauthorized: false },
+            connectionString: process.env.DATABASE_URL
+                ? (process.env.DATABASE_URL.includes('localhost')
+                    ? process.env.DATABASE_URL
+                    : process.env.DATABASE_URL + (process.env.DATABASE_URL.includes('?') ? '&' : '?') + 'sslmode=verify-full')
+                : process.env.DATABASE_URL,
+            ssl: process.env.DATABASE_URL && !process.env.DATABASE_URL.includes('localhost')
+                ? { rejectUnauthorized: true }
+                : false,
             max: 3, // dedicated pool for sessions — keep separate from main pool
         }),
         tableName: 'session',
@@ -1811,8 +1816,7 @@ app.get(/(.*)/, (req, res) => {
 // Socket & Server Start
 // --------------------------------------------------------------------------
 
-// Validate required environment variables
-console.log('🔍 Validating environment variables...');
+// Validate required environment variables (logged inside startServer() to avoid duplicate output)
 const requiredVars = ['GITHUB_WEBHOOK_SECRET']; // GITHUB_TOKEN is now optional as OAuth is used for user sessions
 const missingVars = requiredVars.filter(varName => !process.env[varName]);
 
@@ -1862,6 +1866,15 @@ async function startServer() {
             console.log(`📡 Real-time Streaming: Active`);
             console.log(`🔗 Webhook Endpoint: POST http://localhost:${PORT}/api/github/webhook`);
             console.log(`✅ Database: Neon PostgreSQL`);
+
+            // Log Trivy availability so we can confirm in Railway deploy logs
+            const trivyManager = require('../services/security/trivyManager');
+            const trivyPath = trivyManager.getBinaryPath();
+            if (trivyPath) {
+                console.log(`🔍 Trivy CLI: ${trivyPath}`);
+            } else {
+                console.warn(`⚠️  Trivy CLI: not found — scans will use TrivyLite fallback`);
+            }
         });
     } catch (error) {
         console.error('❌ Failed to start server:', error);

@@ -34,22 +34,79 @@ const TRIVY_BIN_LOCAL = path.join(
     process.platform === 'win32' ? 'trivy.exe' : 'trivy'
 );
 
-// Also check common system paths where nixpacks might install trivy
+// Common system paths where nixpkgs / curl-install might place trivy
+// Railway Nixpacks puts binaries in Nix store paths that are symlinked
 const TRIVY_SYSTEM_PATHS = [
     '/usr/local/bin/trivy',
     '/usr/bin/trivy',
+    // Nixpacks / Nix store symlinks (Railway)
     '/nix/var/nix/profiles/default/bin/trivy',
+    '/root/.nix-profile/bin/trivy',
+    '/home/cnb/.nix-profile/bin/trivy',           // Railway CNB user
+    '/etc/profiles/per-user/root/bin/trivy',       // NixOS per-user
+    '/run/current-system/sw/bin/trivy',            // NixOS system
+    // Homebrew (macOS local dev)
+    '/opt/homebrew/bin/trivy',
+    '/usr/local/Cellar/trivy/*/bin/trivy',
 ];
 
+// Cache the resolved path so we only probe once per process
+let _cachedBinPath = undefined;
+
 /**
- * Returns the path to the Trivy binary, or null if not found.
- * Checks ./bin/trivy first, then common system paths.
+ * Returns the path to the Trivy binary, or null if not found anywhere.
+ * Checks ./bin/trivy, common system paths, then `which`/`command -v`.
  */
 function getBinaryPath() {
-    if (fs.existsSync(TRIVY_BIN_LOCAL)) return TRIVY_BIN_LOCAL;
-    for (const p of TRIVY_SYSTEM_PATHS) {
-        if (fs.existsSync(p)) return p;
+    if (_cachedBinPath !== undefined) return _cachedBinPath;
+
+    // 1. Local ./bin/trivy (curl-installed)
+    if (fs.existsSync(TRIVY_BIN_LOCAL)) {
+        console.log(`[TrivyManager] Found local binary: ${TRIVY_BIN_LOCAL}`);
+        _cachedBinPath = TRIVY_BIN_LOCAL;
+        return _cachedBinPath;
     }
+
+    // 2. Known system paths (nixpkgs / brew / system)
+    for (const p of TRIVY_SYSTEM_PATHS) {
+        if (fs.existsSync(p)) {
+            console.log(`[TrivyManager] Found system binary: ${p}`);
+            _cachedBinPath = p;
+            return _cachedBinPath;
+        }
+    }
+
+    // 3. `which trivy` / `command -v trivy` — handles any PATH location
+    //    Try multiple commands for cross-platform support
+    const { execSync } = require('child_process');
+    const cmds = process.platform === 'win32'
+        ? ['where trivy']
+        : ['which trivy', 'command -v trivy'];
+
+    for (const cmd of cmds) {
+        try {
+            const found = execSync(`${cmd} 2>/dev/null`, { encoding: 'utf8' }).trim().split('\n')[0];
+            if (found && fs.existsSync(found)) {
+                console.log(`[TrivyManager] Found via PATH (${cmd}): ${found}`);
+                _cachedBinPath = found;
+                return _cachedBinPath;
+            }
+        } catch (_) { /* not on PATH */ }
+    }
+
+    // 4. Nix store glob — Nixpacks sometimes only has the store path, not a profile symlink
+    try {
+        const found = execSync('find /nix/store -maxdepth 2 -name trivy -type f 2>/dev/null | head -1', { encoding: 'utf8', timeout: 5000 }).trim();
+        if (found && fs.existsSync(found)) {
+            console.log(`[TrivyManager] Found in Nix store: ${found}`);
+            _cachedBinPath = found;
+            return _cachedBinPath;
+        }
+    } catch (_) { /* no nix store or find not available */ }
+
+    // 5. Log PATH for debugging (helps diagnose Railway issues)
+    console.log(`[TrivyManager] Trivy not found. PATH=${process.env.PATH || '(not set)'}`);
+    _cachedBinPath = null;
     return null;
 }
 
@@ -131,3 +188,22 @@ async function scanSBOM(dirPath, options = {}) {
 }
 
 module.exports = { isBinaryAvailable, getBinaryPath, scan, scanSBOM };
+
+// Log trivy availability at module load time so it shows in Railway startup logs
+const _binPath = getBinaryPath();
+if (_binPath) {
+    // Verify it's actually executable by running `trivy version`
+    try {
+        const { execSync } = require('child_process');
+        const version = execSync(`"${_binPath}" version 2>/dev/null`, { encoding: 'utf8', timeout: 10000 }).trim();
+        console.log(`[TrivyManager] ✅ Trivy binary ready: ${_binPath}`);
+        console.log(`[TrivyManager]    ${version.split('\n')[0]}`);
+    } catch (e) {
+        console.warn(`[TrivyManager] ⚠️  Trivy found at ${_binPath} but failed to execute: ${e.message}`);
+        // Reset cache — binary exists but isn't executable
+        _cachedBinPath = null;
+    }
+} else {
+    console.warn('[TrivyManager] ⚠️  Trivy binary NOT found — scans will use TrivyLite fallback');
+    console.warn('[TrivyManager]    To fix: ensure nixpacks.toml has trivy in [phases.setup].nixPkgs');
+}
