@@ -23,17 +23,7 @@ const util = require('util');
 
 const execFileAsync = util.promisify(execFile);
 const trivyLite     = require('./trivyLite');
-
-// ─── Resolve Trivy CLI binary path ───────────────────────────────────────────
-// Looks for ./bin/trivy (installed by `npm run install:trivy`) relative to project root.
-// Falls back to a system-wide `trivy` if present on PATH.
-const PROJECT_ROOT = path.resolve(__dirname, '../../');
-const TRIVY_BIN_LOCAL = path.join(PROJECT_ROOT, 'bin', process.platform === 'win32' ? 'trivy.exe' : 'trivy');
-
-function getTrivyBin() {
-    if (fs.existsSync(TRIVY_BIN_LOCAL)) return TRIVY_BIN_LOCAL;
-    return null; // will fall through to Docker or TrivyLite
-}
+const trivyManager  = require('./trivyManager');
 
 // ─── Risk scoring weights (from doc §9) ──────────────────────────────────────
 const SEVERITY_WEIGHTS = { critical: 25, high: 10, medium: 3, low: 1, unknown: 0 };
@@ -221,53 +211,14 @@ async function enrichDescriptions(vulns) {
 }
 
 
-// ─── Run Trivy via local CLI binary ──────────────────────────────────────────
+// ─── Run Trivy via local CLI binary — delegated to TrivyManager ──────────────
 async function runTrivyViaCLI(repoDir, options = {}) {
-    const trivyBin = getTrivyBin();
-    if (!trivyBin) throw new Error('Trivy CLI binary not found in ./bin/trivy');
-
-    const severity = options.severity || 'CRITICAL,HIGH,MEDIUM,LOW';
-    // Write JSON output to a temp file — avoids mixing progress output with JSON on stdout
-    const outputFile = path.join(os.tmpdir(), `trivy-${Date.now()}.json`);
-
-    try {
-        await execFileAsync(trivyBin, [
-            'fs', repoDir,
-            '--scanners', 'vuln,secret,misconfig',
-            '--severity', severity,
-            '--format', 'json',
-            '--output', outputFile,
-            '--exit-code', '0',
-        ], { timeout: 300_000 });
-
-        const raw = fs.readFileSync(outputFile, 'utf8');
-        return raw;
-    } finally {
-        try { fs.unlinkSync(outputFile); } catch (_) {}
-    }
+    return trivyManager.scan(repoDir, options);
 }
 
-// ─── Generate SBOM via Trivy CLI ─────────────────────────────────────────────
+// ─── Generate SBOM via Trivy CLI — delegated to TrivyManager ─────────────────
 async function runTrivySBOMViaCLI(repoDir) {
-    const trivyBin = getTrivyBin();
-    if (!trivyBin) return '{}';
-
-    const outputFile = path.join(os.tmpdir(), `trivy-sbom-${Date.now()}.json`);
-    try {
-        await execFileAsync(trivyBin, [
-            'fs', repoDir,
-            '--format', 'cyclonedx',
-            '--output', outputFile,
-            '--exit-code', '0',
-        ], { timeout: 300_000 });
-
-        const raw = fs.readFileSync(outputFile, 'utf8');
-        return raw && raw.trim() ? raw : '{}';
-    } catch (_) {
-        return '{}';
-    } finally {
-        try { fs.unlinkSync(outputFile); } catch (_) {}
-    }
+    return trivyManager.scanSBOM(repoDir);
 }
 
 // ─── Run Trivy via Docker (secondary fallback when CLI not installed) ─────────
@@ -480,17 +431,17 @@ async function scanRepository(repoFullName, token = null, ref = null, options = 
             scanDir = cloned.repoDir;
         }
 
-        // ── Engine selection: CLI → Docker → TrivyLite ───────────────────────
+        // ── Engine selection: CLI (TrivyManager) → Docker → TrivyLite ──────────
         let rawJson;
         let engine = 'trivylite';
 
-        const hasCLI = Boolean(getTrivyBin());
+        const hasCLI = trivyManager.isBinaryAvailable();
 
         if (hasCLI) {
             try {
                 rawJson = await runTrivyViaCLI(scanDir, options);
                 engine  = 'trivy-cli';
-                console.log(`[securityScanner] Using Trivy CLI (${TRIVY_BIN_LOCAL})`);
+                console.log(`[securityScanner] Using Trivy CLI (${trivyManager.getBinaryPath()})`);
             } catch (cliErr) {
                 console.warn(`[securityScanner] Trivy CLI failed (${cliErr.message}), trying Docker...`);
             }

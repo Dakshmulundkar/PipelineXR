@@ -4,7 +4,7 @@
   "description": "PipelineXR - Comprehensive DevOps Analytics Dashboard",
   "main": "server/index.js",
   "scripts": {
-    "start": "node server/index.js",
+    "start": "npm run install:trivy && node server/index.js",
     "dev": "node start-both.js",
     "test:oauth": "node test-oauth-setup.js",
     "deploy": "node deploy.js deploy",
@@ -60,5 +60,8 @@
   "bugs": {
     "url": "https://github.com/your-org/pipelinexr/issues"
   },
-  "homepage": "https://github.com/your-org/pipelinexr#readme"
+  "homepage": "https://github.com/your-org/pipelinexr#readme",
+  "devDependencies": {
+    "supertest": "^7.2.2"
+  }
 }

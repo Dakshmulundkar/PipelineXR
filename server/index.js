@@ -481,44 +481,7 @@ app.post('/api/github/webhook', async (req, res) => {
 
 // Legacy webhook endpoint removed (was deprecated Supabase remnant)
 
-// Trigger Pipeline (SCA, Secret, SAST, Container)
-app.post('/api/ci/run', async (req, res) => {
-    console.log('Manual pipeline trigger received');
-    try {
-        const { owner, repo, workflow_id, ref } = req.body;
-        
-        if (!owner || !repo || !workflow_id) {
-            return res.status(400).json({ error: 'Missing required parameters: owner, repo, workflow_id' });
-        }
-
-        // Validate owner/repo format to prevent injection
-        const safeRepo = sanitizeRepo(`${owner}/${repo}`);
-        if (!safeRepo) return res.status(400).json({ error: 'Invalid owner or repo format' });
-
-        await ensureGithub(req);
-        const [safeOwner, safeRepoName] = safeRepo.split('/');
-        await githubService.triggerWorkflow(safeOwner, safeRepoName, workflow_id, ref || 'main');
-
-        res.json({ status: 'dispatched' });
-    } catch (error) {
-        console.error('Pipeline Trigger Error:', error);
-        res.status(500).json({ error: error.message });
-    }
-});
-
 // Pipeline Monitoring APIs
-app.get('/api/pipeline/runs', async (req, res) => {
-    try {
-        const limit = parseInt(req.query.limit) || 50;
-        const repository = req.query.repository || null;
-        const runs = await webhookService.getRecentWorkflowRuns(limit, repository);
-        res.json(runs);
-    } catch (error) {
-        console.error('Pipeline runs fetch error:', error);
-        res.status(500).json({ error: error.message });
-    }
-});
-
 app.get('/api/pipeline/runs/:runId', async (req, res) => {
     try {
         const { runId } = req.params;
@@ -838,6 +801,26 @@ app.get('/api/metrics/trend/:name', async (req, res) => {
 // --------------------------------------------------------------------------
 // Metrics Routes (DORA)
 // --------------------------------------------------------------------------
+
+// GET /api/metrics/live — returns real-time pipeline activity snapshot
+app.get('/api/metrics/live', async (req, res) => {
+    try {
+        const userId = getUserId(req);
+        if (!userId) return res.status(401).json({ error: 'Authentication required' });
+        const repository = sanitizeRepo(req.query.repository) || null;
+        const data = await metricsService.getDoraMetrics(repository, 1, userId);
+        const activePipelines = (data.rawRuns || []).filter(r => r.status === 'in_progress').length;
+        res.json({
+            activePipelines,
+            recentRuns: data.totalDeployments || 0,
+            failureRate: data.successRate != null ? Math.round(100 - data.successRate) : 0,
+        });
+    } catch (error) {
+        console.error('[metrics/live]', error.message);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 app.get('/api/metrics/dora/:repo', async (req, res) => {
   try {
     const userId = getUserId(req); if (!userId) return res.status(401).json({ error: 'Authentication required' });

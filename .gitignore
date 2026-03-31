@@ -48,3 +48,11 @@ refrence/
 
 # Trivy CLI binary (installed via `npm run install:trivy`)
 bin/
+
+# Test artifacts
+coverage/
+*.lcov
+.nyc_output/
+
+# Temp scan output
+/tmp/trivy-*

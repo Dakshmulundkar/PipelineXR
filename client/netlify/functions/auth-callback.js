@@ -61,7 +61,9 @@ exports.handler = async (event) => {
     }
 
     // 3. Sync user with Railway backend (fire-and-forget)
-    const railwayUrl = process.env.VITE_API_BASE_URL || '';
+    // NOTE: RAILWAY_BACKEND_URL is a plain server-side env var set in the Netlify dashboard.
+    // VITE_API_BASE_URL is a Vite build-time variable — it is NOT available in Netlify Functions.
+    const railwayUrl = process.env.RAILWAY_BACKEND_URL || '';
     if (railwayUrl) {
         try {
             await fetch(`${railwayUrl}/api/auth/sync-user`, {
