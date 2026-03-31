@@ -4,7 +4,7 @@
   "description": "PipelineXR - Comprehensive DevOps Analytics Dashboard",
   "main": "server/index.js",
   "scripts": {
-    "start": "npm run install:trivy && node server/index.js",
+    "start": "node server/index.js",
     "dev": "node start-both.js",
     "test:oauth": "node test-oauth-setup.js",
     "deploy": "node deploy.js deploy",
