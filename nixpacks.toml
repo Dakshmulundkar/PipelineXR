@@ -1,19 +1,14 @@
-# ── Railway Nixpacks Configuration ─────────────────────────────────────────────
-# Ensures Trivy CLI, git, and Node.js 20 are available at both build AND runtime.
-
 [phases.setup]
-nixPkgs = ["nodejs_20", "git", "trivy"]
-# nixInclude injects these Nix store paths into the runtime image,
-# preventing Nixpacks from stripping Trivy out of the final layer.
-nixLibs = []
+nixPkgs = ["nodejs_20", "git", "curl"]
 
 [phases.install]
 cmds = ["npm install"]
 
-# Verify Trivy is available after build — this line appears in deploy logs
-# and confirms the binary survived into the runtime image.
 [phases.build]
-cmds = ["which trivy && trivy version || echo 'WARNING: trivy not found after build'"]
+cmds = [
+  "curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin",
+  "trivy version && echo '[TRIVY] ✅ Installed successfully' || echo '[TRIVY] ❌ Install failed'"
+]
 
 [start]
 cmd = "node server/index.js"
