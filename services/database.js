@@ -1,10 +1,16 @@
 const { Pool } = require('pg');
 
+// Append sslmode=verify-full to the connection string for non-localhost DBs
+// so pg v8.20+ doesn't emit the deprecation warning about SSL mode aliases.
+const dbUrl = process.env.DATABASE_URL || '';
+const isLocal = dbUrl.includes('localhost');
+const connectionString = !isLocal && dbUrl
+    ? dbUrl + (dbUrl.includes('?') ? '&' : '?') + 'sslmode=verify-full'
+    : dbUrl;
+
 const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: process.env.DATABASE_URL && process.env.DATABASE_URL.includes('localhost')
-        ? false
-        : { rejectUnauthorized: false },
+    connectionString,
+    ssl: isLocal ? false : { rejectUnauthorized: true },
     max: 5,              // Neon free tier: 100 connection limit — keep headroom
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 5000,

@@ -23,11 +23,19 @@ const execFileAsync = util.promisify(execFile);
 const TRIVY_RUNTIME_DIR = path.join(os.tmpdir(), 'trivy-bin');
 const TRIVY_RUNTIME_BIN = path.join(TRIVY_RUNTIME_DIR, 'trivy');
 
-// Version to download — pin for reproducibility
-const TRIVY_VERSION = '0.58.2';
+// Version to download — pinned to last known clean release (v0.69.3)
+// Note: Trivy had a supply chain incident on 2026-03-19 affecting Docker Hub.
+// GitHub release binaries are safe. See: github.com/aquasecurity/trivy/security/advisories/GHSA-69fq-xp46-6x23
+const TRIVY_VERSION = '0.69.3';
 
-// Download URL for Linux amd64 (Railway runs Linux x86_64)
-const TRIVY_URL = `https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz`;
+/**
+ * Get the download URL for a specific Trivy version.
+ * @param {string} version - Version number (e.g., '0.69.3')
+ * @returns {string} Download URL
+ */
+function getTrivyDownloadUrl(version) {
+    return `https://github.com/aquasecurity/trivy/releases/download/v${version}/trivy_${version}_Linux-64bit.tar.gz`;
+}
 
 /**
  * Returns the runtime binary path if already downloaded, null otherwise.
@@ -41,23 +49,30 @@ function getRuntimeBinPath() {
  */
 function downloadFile(url, destPath) {
     return new Promise((resolve, reject) => {
-        const file = fs.createWriteStream(destPath);
+        let file = fs.createWriteStream(destPath);
+        let settled = false;
+
+        const done = (err) => {
+            if (settled) return;
+            settled = true;
+            if (err) reject(err); else resolve();
+        };
 
         const request = (reqUrl) => {
             https.get(reqUrl, { headers: { 'User-Agent': 'PipelineXR/1.0' } }, (res) => {
-                // Follow redirects (GitHub releases use 302)
+                // Follow redirects (GitHub releases use 302/301/307)
                 if (res.statusCode === 301 || res.statusCode === 302 || res.statusCode === 307) {
-                    file.close();
+                    res.resume(); // drain response
                     return request(res.headers.location);
                 }
                 if (res.statusCode !== 200) {
-                    file.close();
-                    return reject(new Error(`HTTP ${res.statusCode} for ${reqUrl}`));
+                    res.resume();
+                    return done(new Error(`HTTP ${res.statusCode} for ${reqUrl}`));
                 }
                 res.pipe(file);
-                file.on('finish', () => file.close(resolve));
-                file.on('error', reject);
-            }).on('error', reject);
+                file.on('finish', () => file.close(() => done(null)));
+                file.on('error', done);
+            }).on('error', done);
         };
 
         request(url);
@@ -90,9 +105,11 @@ async function installTrivy() {
         fs.mkdirSync(TRIVY_RUNTIME_DIR, { recursive: true });
 
         const tarPath = path.join(TRIVY_RUNTIME_DIR, 'trivy.tar.gz');
+        const downloadUrl = getTrivyDownloadUrl(TRIVY_VERSION);
 
         // Download tar.gz
-        await downloadFile(TRIVY_URL, tarPath);
+        console.log(`[TrivyInstaller] Fetching from: ${downloadUrl}`);
+        await downloadFile(downloadUrl, tarPath);
         console.log(`[TrivyInstaller] Downloaded to ${tarPath}`);
 
         // Extract trivy binary

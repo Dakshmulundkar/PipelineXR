@@ -1842,17 +1842,6 @@ async function startServer() {
         // Resolve admin login from GITHUB_TOKEN before anything else
         await resolveAdminLogin();
 
-        // Install Trivy binary at startup (non-blocking, non-fatal)
-        // This runs in background so it doesn't delay server startup
-        const { installTrivy } = require('../services/security/trivyInstaller');
-        const trivyManager = require('../services/security/trivyManager');
-        installTrivy().then((binPath) => {
-            if (binPath) {
-                // Reset cache so trivyManager picks up the newly installed binary
-                trivyManager._resetCache();
-            }
-        }).catch(() => {});
-
         // Initialize database schema on Neon PostgreSQL
         await initializeDatabase();
 

@@ -26,10 +26,14 @@ const init = async (token) => {
         try {
             if (token) {
                 octokit = new OctokitClass({ auth: token });
+                const isNewToken = currentToken !== token;
                 currentToken = token;
-                console.log("GitHub Service Initialized with Token");
+                // Only log when the token actually changes (not on redundant re-inits)
+                if (isNewToken) {
+                    console.log('GitHub Service Initialized with Token');
+                }
             } else {
-                console.warn("GitHub Service: No token provided. Rate limits will be strict.");
+                console.warn('GitHub Service: No token provided. Rate limits will be strict.');
                 octokit = new OctokitClass();
                 currentToken = null;
             }

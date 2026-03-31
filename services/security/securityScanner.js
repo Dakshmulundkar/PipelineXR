@@ -441,19 +441,23 @@ async function scanRepository(repoFullName, token = null, ref = null, options = 
             try {
                 rawJson = await runTrivyViaCLI(scanDir, options);
                 engine  = 'trivy-cli';
-                console.log(`[securityScanner] Using Trivy CLI (${trivyManager.getBinaryPath()})`);
+                console.log(`[securityScanner] ✅ Scan completed with Trivy CLI (${trivyManager.getBinaryPath()})`);
             } catch (cliErr) {
-                console.warn(`[securityScanner] Trivy CLI failed (${cliErr.message}), trying Docker...`);
+                console.warn(`[securityScanner] Trivy CLI execution failed: ${cliErr.message}`);
+                console.warn('[securityScanner] Falling back to Docker...');
             }
+        } else {
+            console.log('[securityScanner] Trivy CLI not installed, trying Docker...');
         }
 
         if (!rawJson) {
             try {
                 rawJson = await runTrivyViaDocker(scanDir, options);
                 engine  = 'trivy-docker';
-                console.log('[securityScanner] Using Trivy via Docker');
+                console.log('[securityScanner] ✅ Scan completed with Trivy via Docker');
             } catch (dockerErr) {
-                console.warn(`[securityScanner] Docker unavailable (${dockerErr.message}), using TrivyLite fallback`);
+                // Docker is typically unavailable on managed platforms (Railway, Render, etc.) — this is expected.
+                console.log('[securityScanner] Docker not available, using TrivyLite (pure-JS) fallback engine');
                 rawJson = await trivyLiteFallback(scanDir);
                 engine  = 'trivylite';
             }

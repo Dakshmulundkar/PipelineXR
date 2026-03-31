@@ -117,7 +117,8 @@ function getBinaryPath() {
 
     // 6. Log PATH for debugging (helps diagnose Railway issues)
     console.log(`[TrivyManager] Trivy not found. PATH=${process.env.PATH || '(not set)'}`);
-    _cachedBinPath = null;
+    // Do NOT permanently cache null — installer may still be running at startup.
+    // Return null without caching so next call re-probes (installer may have finished).
     return null;
 }
 
@@ -200,10 +201,11 @@ async function scanSBOM(dirPath, options = {}) {
 
 module.exports = { isBinaryAvailable, getBinaryPath, scan, scanSBOM, _resetCache: () => { _cachedBinPath = undefined; } };
 
-// Log trivy availability at module load time so it shows in Railway startup logs
+// Log trivy availability at module load time so it shows in Railway startup logs.
+// Note: if not found here, trivyInstaller.js will download it async — getBinaryPath()
+// will re-probe on the next scan call since null is not permanently cached.
 const _binPath = getBinaryPath();
 if (_binPath) {
-    // Verify it's actually executable by running `trivy version`
     try {
         const { execSync } = require('child_process');
         const version = execSync(`"${_binPath}" version 2>/dev/null`, { encoding: 'utf8', timeout: 10000 }).trim();
@@ -211,10 +213,9 @@ if (_binPath) {
         console.log(`[TrivyManager]    ${version.split('\n')[0]}`);
     } catch (e) {
         console.warn(`[TrivyManager] ⚠️  Trivy found at ${_binPath} but failed to execute: ${e.message}`);
-        // Reset cache — binary exists but isn't executable
         _cachedBinPath = null;
     }
 } else {
-    console.warn('[TrivyManager] ⚠️  Trivy binary NOT found — scans will use TrivyLite fallback');
-    console.warn('[TrivyManager]    To fix: ensure nixpacks.toml has trivy in [phases.setup].nixPkgs');
+    console.log('[TrivyManager] Trivy binary not found at startup — trivyInstaller will attempt download.');
+    console.log('[TrivyManager] Scans will use TrivyLite until Trivy is ready.');
 }

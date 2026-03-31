@@ -1,17 +1,12 @@
-const { Pool } = require('pg');
+// Reuse the shared pool from database.js instead of creating a separate pool.
+// This avoids wasting a Neon connection slot and prevents duplicate SSL configs.
+const pool = require('./database');
 
 /**
  * Initialize PostgreSQL database — creates all tables if they don't exist.
  * Safe to call on every startup (all statements use IF NOT EXISTS).
  */
 async function initializeDatabase() {
-    const pool = new Pool({
-        connectionString: process.env.DATABASE_URL,
-        ssl: process.env.DATABASE_URL && process.env.DATABASE_URL.includes('localhost')
-            ? false
-            : { rejectUnauthorized: false },
-    });
-
     const client = await pool.connect();
     try {
         console.log('[DB] Running schema initialization...');
@@ -356,7 +351,7 @@ async function initializeDatabase() {
         }
     } finally {
         client.release();
-        await pool.end();
+        // Do NOT call pool.end() — we reuse the shared pool from database.js
     }
 }
 

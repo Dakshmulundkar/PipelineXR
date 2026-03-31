@@ -1,5 +1,6 @@
+# Fallback nixpacks config — Railway uses Dockerfile (see railway.json)
 [phases.setup]
-nixPkgs = ["nodejs_20", "git", "curl", "gnutar"]
+nixPkgs = ["nodejs_20", "git", "trivy"]
 
 [phases.install]
 cmds = ["npm install"]
