@@ -104,7 +104,18 @@ function getBinaryPath() {
         }
     } catch (_) { /* no nix store or find not available */ }
 
-    // 5. Log PATH for debugging (helps diagnose Railway issues)
+    // 5. Runtime-installed path (/tmp/trivy-bin/trivy — installed by trivyInstaller.js at startup)
+    try {
+        const { getRuntimeBinPath } = require('./trivyInstaller');
+        const runtimePath = getRuntimeBinPath();
+        if (runtimePath) {
+            console.log(`[TrivyManager] Found runtime-installed binary: ${runtimePath}`);
+            _cachedBinPath = runtimePath;
+            return _cachedBinPath;
+        }
+    } catch (_) { /* trivyInstaller not available */ }
+
+    // 6. Log PATH for debugging (helps diagnose Railway issues)
     console.log(`[TrivyManager] Trivy not found. PATH=${process.env.PATH || '(not set)'}`);
     _cachedBinPath = null;
     return null;
@@ -187,7 +198,7 @@ async function scanSBOM(dirPath, options = {}) {
     }
 }
 
-module.exports = { isBinaryAvailable, getBinaryPath, scan, scanSBOM };
+module.exports = { isBinaryAvailable, getBinaryPath, scan, scanSBOM, _resetCache: () => { _cachedBinPath = undefined; } };
 
 // Log trivy availability at module load time so it shows in Railway startup logs
 const _binPath = getBinaryPath();
