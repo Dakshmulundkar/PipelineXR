@@ -106,6 +106,7 @@ export const api = {
 
     // Trivy Advanced
     triggerTrivyScan: (data) => apiInstance.post(`${API_BASE}/security/scan/trivy`, data).then(res => res.data),
+    owaspScan: (url) => apiInstance.post(`${API_BASE}/security/owasp-scan`, { url }).then(res => res.data),
 
     getVulnerabilities: (owner, repo) => get(`${API_BASE}/security/vulnerabilities/${owner}/${repo}`),
     getSBOM: (owner, repo) => get(`${API_BASE}/security/sbom/${owner}/${repo}`),

@@ -1179,11 +1179,33 @@ app.get('/api/security/sbom/:owner/:repo', async (req, res) => {
     }
 });
 
+// POST /api/security/owasp-scan — passive HTTP security header scan (OWASP ZAP-aligned)
+app.post('/api/security/owasp-scan', expensiveLimiter, async (req, res) => {
+    try {
+        const userId = getUserId(req); if (!userId) return res.status(401).json({ error: 'Authentication required' });
+        const { url } = req.body;
+        if (!url) return res.status(400).json({ error: 'url is required' });
+
+        // Basic SSRF protection
+        const parsed = new URL(url.startsWith('http') ? url : 'https://' + url);
+        const host = parsed.hostname.toLowerCase();
+        const blocked = ['localhost', '127.0.0.1', '0.0.0.0', '::1', '169.254.169.254'];
+        if (blocked.includes(host) || host.startsWith('192.168.') || host.startsWith('10.') || /^172\.(1[6-9]|2\d|3[01])\./.test(host)) {
+            return res.status(400).json({ error: 'Private/internal URLs are not allowed' });
+        }
+
+        const owaspScanner = require('../services/security/owaspScanner');
+        const result = await owaspScanner.scanUrl(url);
+        res.json(result);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // GET /api/security/dependabot/:owner/:repo — fetch Dependabot alerts and persist them
 app.get('/api/security/dependabot/:owner/:repo', async (req, res) => {
     try {
-        const userId = getUserId(req); if (!userId) return res.status(401).json({ error: 'Authentication required' });
-        const { owner, repo } = req.params;
+        const userId = getUserId(req); if (!userId) return res.status(401).json({ error: 'Authentication required' });        const { owner, repo } = req.params;
         const repoFull = `${owner}/${repo}`;
 
         await ensureGithub(req);
