@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Sparkles, Loader2, ChevronDown, ChevronUp, AlertTriangle, CheckCircle2, Zap, X, FileCode, Wrench, MapPin } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Sparkles, Loader2, ChevronDown, ChevronUp, AlertTriangle, CheckCircle2, Zap, X, FileCode, Wrench, MapPin, Clock } from 'lucide-react';
 
 const GRADE_COLOR   = { Elite: '#34D399', High: '#60A5FA', Medium: '#FBBF24', Low: '#F87171' };
 const POSTURE_COLOR = { secure: '#34D399', 'at-risk': '#FBBF24', critical: '#F87171' };
@@ -55,10 +55,10 @@ curl https://yourname-pipelinexr-llm.hf.space/health`,
         title: 'Request timed out',
         file: 'services/ai/llm.js',
         location: 'hfPost() — AbortController timer',
-        cause: `Request exceeded HF_TIMEOUT_MS (default 90s). Model may still be loading.`,
-        fix: 'Increase HF_TIMEOUT_MS or wait for the Space to finish cold-starting.',
-        code: `# .env
-HF_TIMEOUT_MS=120000   # 2 minutes`,
+        cause: `Request exceeded HF_TIMEOUT_MS (default 600s / 10 min). Space may be cold-starting with the 4.4GB model.`,
+        fix: 'Wait a few minutes for the Space to warm up, then retry. The keepalive pinger should prevent this after first load.',
+        code: `# If you need longer timeout:
+HF_TIMEOUT_MS=720000   # 12 minutes`,
     },
 ];
 
@@ -178,6 +178,19 @@ const AiInsightPanel = ({ title = 'AI Analysis', onFetch, children }) => {
     const [error, setError]       = useState('');
     const [expanded, setExpanded] = useState(true);
     const [showModal, setShowModal] = useState(false);
+    const [elapsed, setElapsed]   = useState(0);
+    const timerRef = useRef(null);
+
+    // Tick elapsed seconds while loading
+    useEffect(() => {
+        if (state === 'loading') {
+            setElapsed(0);
+            timerRef.current = setInterval(() => setElapsed(s => s + 1), 1000);
+        } else {
+            clearInterval(timerRef.current);
+        }
+        return () => clearInterval(timerRef.current);
+    }, [state]);
 
     const handleFetch = async () => {
         setState('loading');
@@ -196,6 +209,9 @@ const AiInsightPanel = ({ title = 'AI Analysis', onFetch, children }) => {
     const data    = result?.data || result;
     const source  = result?.source;
     const latency = result?.latency_ms;
+
+    // Format elapsed time as mm:ss
+    const fmtElapsed = s => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 
     return (
         <>
@@ -223,7 +239,7 @@ const AiInsightPanel = ({ title = 'AI Analysis', onFetch, children }) => {
                             {source === 'hf' ? 'Qwen-7B' : source === 'gemini' ? 'Gemini' : source === 'cache' ? 'cached' : 'static'}
                         </span>
                     )}
-                    {latency && <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)' }}>{latency}ms</span>}
+                    {latency && <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)' }}>{latency > 60000 ? `${Math.round(latency/1000)}s` : `${latency}ms`}</span>}
 
                     {state === 'idle' && (
                         <button onClick={e => { e.stopPropagation(); handleFetch(); }} style={{
@@ -232,7 +248,14 @@ const AiInsightPanel = ({ title = 'AI Analysis', onFetch, children }) => {
                             color: '#A78BFA', cursor: 'pointer',
                         }}>Analyze</button>
                     )}
-                    {state === 'loading' && <Loader2 size={16} color="#A78BFA" className="animate-spin" />}
+                    {state === 'loading' && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <Loader2 size={16} color="#A78BFA" className="animate-spin" />
+                            <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', fontVariantNumeric: 'tabular-nums' }}>
+                                {fmtElapsed(elapsed)}
+                            </span>
+                        </div>
+                    )}
                     {state === 'done' && (expanded
                         ? <ChevronUp size={14} color="rgba(255,255,255,0.3)" />
                         : <ChevronDown size={14} color="rgba(255,255,255,0.3)" />
@@ -255,9 +278,20 @@ const AiInsightPanel = ({ title = 'AI Analysis', onFetch, children }) => {
                     )}
                 </div>
 
+                {/* Slow model hint — shown after 10s to reassure user it's not frozen */}
+                {state === 'loading' && elapsed >= 10 && (
+                    <div style={{ padding: '8px 18px', display: 'flex', alignItems: 'center', gap: 8, borderBottom: '1px solid rgba(124,58,237,0.1)', background: 'rgba(124,58,237,0.04)' }}>
+                        <Clock size={11} color="#A78BFA" />
+                        <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>
+                            {elapsed < 60
+                                ? 'Qwen-7B is running on CPU — this takes 3–8 min. Hang tight.'
+                                : `Still running… ${fmtElapsed(elapsed)} elapsed. CPU inference is slow but working.`}
+                        </span>
+                    </div>
+                )}
+
                 {/* Inline error summary */}
-                {state === 'error' && (
-                    <div
+                {state === 'error' && (                    <div
                         onClick={() => setShowModal(true)}
                         style={{ padding: '10px 18px', display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer' }}
                         title="Click for details"

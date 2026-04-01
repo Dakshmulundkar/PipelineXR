@@ -17,7 +17,8 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const HF_URL     = (process.env.HF_SPACE_URL || process.env.HUGGINGFACE_LLM_URL || '').replace(/\/$/, '');
 const HF_SECRET  = process.env.HF_SPACE_SECRET || process.env.HUGGINGFACE_API_SECRET || '';
-const HF_TIMEOUT = parseInt(process.env.HF_TIMEOUT_MS || '90000', 10);
+// CPU inference on HF Space takes 3-8 min per request — default timeout is 10 min
+const HF_TIMEOUT = parseInt(process.env.HF_TIMEOUT_MS || '600000', 10);
 
 // Note: Node.js 18+ fetch has built-in connection pooling — no extra HTTP client needed.
 if (!HF_URL && !process.env.GEMINI_API_KEY) {
@@ -26,7 +27,7 @@ if (!HF_URL && !process.env.GEMINI_API_KEY) {
 
 // Simple in-process cache: key → { data, ts }
 const _cache = new Map();
-const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+const CACHE_TTL = 30 * 60 * 1000; // 30 min — HF inference is slow, cache longer
 
 function cacheGet(key) {
     const entry = _cache.get(key);
@@ -44,7 +45,9 @@ function cacheSet(key, data) {
 }
 
 // ── HF Space HTTP call ────────────────────────────────────────────────────────
-async function hfPost(endpoint, body, retries = 2) {
+// Your HF Space returns: { ok: true, data: "<json string>" }
+// The "data" field is a JSON string that must be parsed by the caller.
+async function hfPost(endpoint, body, retries = 1) {
     if (!HF_URL) throw new Error('HF_SPACE_URL not configured');
 
     const headers = { 'Content-Type': 'application/json' };
@@ -63,14 +66,24 @@ async function hfPost(endpoint, body, retries = 2) {
             clearTimeout(timer);
             if (!res.ok) {
                 const text = await res.text().catch(() => '');
+                // Don't retry on 4xx — auth/validation errors won't fix themselves
+                if (res.status >= 400 && res.status < 500) {
+                    throw new Error(`HF Space ${res.status}: ${text.slice(0, 200)}`);
+                }
                 throw new Error(`HF Space ${res.status}: ${text.slice(0, 200)}`);
             }
-            return await res.json();
+            const json = await res.json();
+            // Space returns { ok: true, data: "<json string>" }
+            // Parse data string into object so callers get a plain object
+            if (json.ok && typeof json.data === 'string') {
+                try { json.data = JSON.parse(json.data); } catch (_) { /* leave as string */ }
+            }
+            return json;
         } catch (err) {
             clearTimeout(timer);
             if (attempt === retries) throw err;
-            // Exponential back-off: 2s, 4s
-            await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
+            // Only retry on network errors / 5xx, with backoff
+            await new Promise(r => setTimeout(r, 3000 * (attempt + 1)));
         }
     }
 }
@@ -91,8 +104,8 @@ function getGemini() {
     if (Date.now() < _geminiQuotaExhaustedUntil) return null; // still in backoff
     if (!_gemini) {
         const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-        // gemini-1.5-flash was deprecated — use gemini-2.0-flash-lite (free tier, fast)
-        _gemini = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-lite' });
+        // gemini-2.0-flash: higher free tier quotas than flash-lite (15 RPM → 15 RPM but higher daily limit)
+        _gemini = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
     }
     return _gemini;
 }
@@ -111,11 +124,13 @@ async function geminiGenerate(prompt) {
         return (await result.response).text();
     } catch (err) {
         if (isGeminiQuotaError(err)) {
-            // Extract retry delay from error message if present, else back off 1 hour
-            const retryMatch = err.message.match(/retry.*?(\d+)s/i);
-            const backoffMs = retryMatch
-                ? parseInt(retryMatch[1], 10) * 1000 + 5000  // add 5s buffer
-                : 60 * 60 * 1000;                             // 1 hour default
+            // Extract retry delay — match "retry in 8.35s" capturing the integer part only
+            const retryMatch = err.message.match(/retry[^0-9]*(\d+)(?:\.\d+)?s/i);
+            const retrySecs = retryMatch ? parseInt(retryMatch[1], 10) : null;
+            // Cap at 1 hour — daily quota exhaustion should back off 1h, not days
+            const backoffMs = retrySecs && retrySecs < 3600
+                ? retrySecs * 1000 + 5000   // add 5s buffer
+                : 60 * 60 * 1000;           // 1 hour default / cap
             _geminiQuotaExhaustedUntil = Date.now() + backoffMs;
             console.warn(`[LLM] Gemini quota exhausted — backing off for ${Math.ceil(backoffMs / 1000)}s`);
         }
@@ -391,4 +406,35 @@ module.exports = {
     monitorAlertEmail,
     doraInsights,
     incidentResponse,
+    hfHealth,
 };
+
+// ── Keep HF Space warm — ping /health every 4 min to prevent sleep ────────────
+// HF free Spaces sleep after ~15 min of inactivity. Waking up takes 2-3 min
+// just to load the 4.4GB model before any inference can happen.
+// This keepalive runs only when HF_URL is configured.
+async function hfHealth() {
+    if (!HF_URL) return { ok: false, reason: 'not configured' };
+    try {
+        const controller = new AbortController();
+        setTimeout(() => controller.abort(), 8000);
+        const r = await fetch(`${HF_URL}/health`, { signal: controller.signal });
+        if (!r.ok) return { ok: false, reason: `HTTP ${r.status}` };
+        const data = await r.json();
+        return { ok: true, ...data };
+    } catch (e) {
+        return { ok: false, reason: e.message };
+    }
+}
+
+if (HF_URL) {
+    // Ping immediately at startup
+    hfHealth().then(s => {
+        if (s.ok) console.log(`[LLM] HF Space is warm — model: ${s.model || 'unknown'}`);
+        else console.log(`[LLM] HF Space not ready yet (${s.reason}) — will retry`);
+    });
+    // Keep warm every 4 minutes
+    setInterval(() => {
+        hfHealth().catch(() => {});
+    }, 4 * 60 * 1000);
+}

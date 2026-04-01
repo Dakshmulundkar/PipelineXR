@@ -1152,14 +1152,14 @@ app.get('/api/ai/emails', async (req, res) => {
 
 // GET /api/ai/health — check HF Space connectivity
 app.get('/api/ai/health', async (req, res) => {
-    const hfUrl = process.env.HF_SPACE_URL;
+    const hfUrl = (process.env.HF_SPACE_URL || process.env.HUGGINGFACE_LLM_URL || '').replace(/\/$/, '');
     if (!hfUrl) return res.json({ hf: false, gemini: Boolean(process.env.GEMINI_API_KEY), hf_url: null });
     try {
         const controller = new AbortController();
-        setTimeout(() => controller.abort(), 5000);
+        setTimeout(() => controller.abort(), 8000);
         const r = await fetch(`${hfUrl}/health`, { signal: controller.signal });
         const data = await r.json();
-        res.json({ hf: true, hf_status: data, gemini: Boolean(process.env.GEMINI_API_KEY), hf_url: hfUrl });
+        res.json({ hf: r.ok, hf_status: data, gemini: Boolean(process.env.GEMINI_API_KEY), hf_url: hfUrl });
     } catch (e) {
         res.json({ hf: false, hf_error: e.message, gemini: Boolean(process.env.GEMINI_API_KEY), hf_url: hfUrl });
     }
