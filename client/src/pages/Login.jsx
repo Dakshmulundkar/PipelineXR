@@ -11,8 +11,12 @@ const Login = () => {
         { label: 'Real-time Metrics', icon: Activity, color: '#8B5CF6' }
     ];
 
-    // In production, Railway handles OAuth. In dev, Vite proxy forwards to Railway.
-    const authUrl = `${import.meta.env.VITE_API_BASE_URL || ''}/auth/github`;
+    // On Netlify: auth goes through Netlify Functions (/.netlify/functions/auth-github)
+    // In local dev: Vite proxy forwards /auth/github to Railway on localhost:3001
+    const isNetlify = Boolean(import.meta.env.VITE_NETLIFY_URL || import.meta.env.VITE_API_BASE_URL);
+    const authUrl = isNetlify
+        ? '/.netlify/functions/auth-github'
+        : '/auth/github';
 
     return (
         <div style={{
