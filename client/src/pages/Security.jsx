@@ -115,7 +115,18 @@ const AiReviewPanel = ({ repo }) => {
     }, [repo]);
 
     const fmt = s => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
-    const data = result?.data || result;
+
+    // data may be an object (parsed JSON) or a raw string (model output that failed JSON parse)
+    let data = result?.data || result;
+    if (typeof data === 'string') {
+        // Try to parse it — model sometimes wraps JSON in markdown fences
+        try {
+            const cleaned = data.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+            data = JSON.parse(cleaned);
+        } catch {
+            // Leave as string — will render as raw text fallback below
+        }
+    }
     const source = result?.source;
 
     if (state === 'idle') return (
@@ -224,6 +235,20 @@ const AiReviewPanel = ({ repo }) => {
                         {data.recommendations.map((r, i) => <li key={i} style={{ fontSize: 12, color: 'rgba(255,255,255,0.65)', lineHeight: 1.5 }}>{r}</li>)}
                     </ul>
                 </div>
+            )}
+
+            {/* Raw text fallback — when model returns unstructured output */}
+            {typeof data === 'string' && data.trim() && (
+                <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)', lineHeight: 1.7, margin: 0, whiteSpace: 'pre-wrap' }}>
+                    {data}
+                </p>
+            )}
+            {typeof data === 'object' && data !== null &&
+             !data.risk_summary && !data.executive_summary && !data.overall_posture &&
+             !Array.isArray(data.critical_actions) && !Array.isArray(data.recommendations) && (
+                <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.3)', fontStyle: 'italic', margin: 0 }}>
+                    Analysis completed but returned no structured content. Try re-running.
+                </p>
             )}
         </div>
     );

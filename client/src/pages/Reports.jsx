@@ -1,64 +1,243 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-    FileText, Download, Search, CheckCircle2,
-    XCircle, Clock, RefreshCw, ChevronRight,
-    Filter, PieChart, TrendingUp
+    FileText, Download, RefreshCw, Shield, TrendingUp,
+    CheckCircle2, XCircle, AlertTriangle, Activity,
+    Clock, Zap, BarChart2
 } from 'lucide-react';
-import { Line, Bar } from 'react-chartjs-2';
+import { Bar, Line } from 'react-chartjs-2';
 import {
-    Chart as ChartJS, CategoryScale, LinearScale, PointElement,
-    LineElement, BarElement, Title, Tooltip, Legend, Filler
+    Chart as ChartJS, CategoryScale, LinearScale, BarElement,
+    PointElement, LineElement, Title, Tooltip, Legend, Filler
 } from 'chart.js';
 import { api } from '../services/api';
 import { useAppContext } from '../contexts/AppContext';
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Title, Tooltip, Legend, Filler);
+ChartJS.register(CategoryScale, LinearScale, BarElement, PointElement, LineElement, Title, Tooltip, Legend, Filler);
 
+const GRADE_COLOR = { Elite: '#34D399', High: '#60A5FA', Medium: '#FBBF24', Low: '#F87171' };
+const SEV_COLOR   = { critical: '#F87171', high: '#FB923C', medium: '#FBBF24', low: '#60A5FA' };
+
+// ── Stat card ─────────────────────────────────────────────────────────────────
+const StatCard = ({ label, value, sub, color = '#fff', icon: Icon }) => (
+    <div style={{ background: 'rgba(28,28,30,0.4)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 20, padding: '20px 24px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div>
+                <div style={{ fontSize: 28, fontWeight: 800, color, lineHeight: 1 }}>{value}</div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.35)', marginTop: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</div>
+                {sub && <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.25)', marginTop: 4 }}>{sub}</div>}
+            </div>
+            {Icon && <Icon size={18} style={{ color: 'rgba(255,255,255,0.1)' }} />}
+        </div>
+    </div>
+);
+
+// ── Section header ────────────────────────────────────────────────────────────
+const SectionHeader = ({ icon: Icon, color, title, sub }) => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+        <Icon size={16} style={{ color }} />
+        <span style={{ fontSize: 15, fontWeight: 700, color: '#fff' }}>{title}</span>
+        {sub && <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.3)' }}>{sub}</span>}
+    </div>
+);
+
+// ── DORA section ──────────────────────────────────────────────────────────────
+const DoraSection = ({ repo, timeRange }) => {
+    const [data, setData] = useState(null);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        setLoading(true);
+        api.getDoraMetrics(repo, timeRange)
+            .then(setData)
+            .catch(() => setData(null))
+            .finally(() => setLoading(false));
+    }, [repo, timeRange]);
+
+    const grade = data?.performanceGrade || data?.performance_grade || null;
+    const successRate = data?.successRate ?? data?.success_rate ?? null;
+    const avgBuild = data?.avgBuildDuration ?? data?.avg_build_duration ?? null;
+    const totalDeploys = data?.totalDeployments ?? data?.total_deployments ?? 0;
+    const trendData = data?.trendData || data?.trend_data || [];
+
+    const chartData = trendData.length > 1 ? {
+        labels: trendData.map(d => new Date(d.timestamp || d.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })),
+        datasets: [{
+            label: 'Success Rate %',
+            data: trendData.map(d => d.value ?? d.success_rate ?? 0),
+            borderColor: '#34D399',
+            backgroundColor: 'rgba(52,211,153,0.08)',
+            fill: true, tension: 0.4,
+            pointRadius: 3, pointBackgroundColor: '#34D399',
+        }]
+    } : null;
+
+    const chartOpts = {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: { backgroundColor: 'rgba(28,28,30,0.95)', titleColor: '#fff', bodyColor: 'rgba(255,255,255,0.7)', padding: 10, cornerRadius: 10 } },
+        scales: {
+            x: { grid: { display: false }, ticks: { color: 'rgba(255,255,255,0.3)', font: { size: 10 } }, border: { display: false } },
+            y: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: 'rgba(255,255,255,0.3)', font: { size: 10 } }, border: { display: false }, beginAtZero: true, max: 100 },
+        },
+    };
+
+    if (loading) return <div style={{ height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.2)', fontSize: 13 }}>Loading DORA metrics...</div>;
+    if (!data) return <div style={{ color: 'rgba(255,255,255,0.2)', fontSize: 13 }}>No DORA data available — sync pipeline runs first.</div>;
+
+    return (
+        <div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+                <StatCard label="Deployments" value={totalDeploys} sub={`last ${timeRange}`} icon={Zap} />
+                <StatCard label="Success Rate" value={successRate != null ? `${Math.round(successRate)}%` : '—'} color={successRate >= 90 ? '#34D399' : successRate >= 70 ? '#FBBF24' : '#F87171'} icon={CheckCircle2} />
+                <StatCard label="Avg Build" value={avgBuild != null ? `${Math.round(avgBuild)}m` : '—'} icon={Clock} />
+                <StatCard label="DORA Grade" value={grade || '—'} color={GRADE_COLOR[grade] || '#fff'} icon={BarChart2} />
+            </div>
+            {chartData && (
+                <div style={{ height: 120 }}>
+                    <Line data={chartData} options={chartOpts} />
+                </div>
+            )}
+        </div>
+    );
+};
+
+// ── Security section ──────────────────────────────────────────────────────────
+const SecuritySection = ({ repo }) => {
+    const [data, setData] = useState(null);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        setLoading(true);
+        api.getSecuritySummary(repo)
+            .then(setData)
+            .catch(() => setData(null))
+            .finally(() => setLoading(false));
+    }, [repo]);
+
+    if (loading) return <div style={{ color: 'rgba(255,255,255,0.2)', fontSize: 13 }}>Loading security data...</div>;
+    if (!data || data.total === 0) return <div style={{ color: 'rgba(52,211,153,0.7)', fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}><CheckCircle2 size={14} /> No open vulnerabilities found.</div>;
+
+    const sevs = [
+        { key: 'critical', label: 'Critical', count: data.critical || 0 },
+        { key: 'high',     label: 'High',     count: data.high     || 0 },
+        { key: 'medium',   label: 'Medium',   count: data.medium   || 0 },
+        { key: 'low',      label: 'Low',      count: data.low      || 0 },
+    ];
+
+    const barData = {
+        labels: sevs.map(s => s.label),
+        datasets: [{
+            data: sevs.map(s => s.count),
+            backgroundColor: sevs.map(s => `${SEV_COLOR[s.key]}80`),
+            borderColor: sevs.map(s => SEV_COLOR[s.key]),
+            borderWidth: 1, borderRadius: 6,
+        }]
+    };
+    const barOpts = {
+        responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+        plugins: { legend: { display: false }, tooltip: { backgroundColor: 'rgba(28,28,30,0.95)', titleColor: '#fff', bodyColor: 'rgba(255,255,255,0.7)', padding: 10, cornerRadius: 10 } },
+        scales: {
+            x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: 'rgba(255,255,255,0.3)', font: { size: 10 } }, border: { display: false }, beginAtZero: true },
+            y: { grid: { display: false }, ticks: { color: 'rgba(255,255,255,0.5)', font: { size: 11, weight: '600' } }, border: { display: false } },
+        },
+    };
+
+    const posture = (data.critical || 0) > 0 ? 'critical' : (data.high || 0) > 0 ? 'at-risk' : 'secure';
+    const postureColor = posture === 'critical' ? '#F87171' : posture === 'at-risk' ? '#FBBF24' : '#34D399';
+
+    return (
+        <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+                <div style={{ padding: '4px 12px', borderRadius: 8, background: `${postureColor}15`, border: `1px solid ${postureColor}40`, fontSize: 11, fontWeight: 800, color: postureColor, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                    {posture}
+                </div>
+                <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)' }}>{data.total} open vulnerabilities</span>
+                {data.lastScanned && <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.2)', marginLeft: 'auto' }}>Last scan: {new Date(data.lastScanned).toLocaleDateString()}</span>}
+            </div>
+            <div style={{ height: 100 }}>
+                <Bar data={barData} options={barOpts} />
+            </div>
+        </div>
+    );
+};
+
+// ── Pipeline reliability section ──────────────────────────────────────────────
+const PipelineSection = ({ repo, timeRange }) => {
+    const [runs, setRuns] = useState(null);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        setLoading(true);
+        api.getPipelineRuns(50, repo)
+            .then(data => setRuns(Array.isArray(data) ? data : data?.runs || []))
+            .catch(() => setRuns([]))
+            .finally(() => setLoading(false));
+    }, [repo, timeRange]);
+
+    if (loading) return <div style={{ color: 'rgba(255,255,255,0.2)', fontSize: 13 }}>Loading pipeline data...</div>;
+    if (!runs || runs.length === 0) return <div style={{ color: 'rgba(255,255,255,0.2)', fontSize: 13 }}>No pipeline runs found.</div>;
+
+    const total   = runs.length;
+    const success = runs.filter(r => r.conclusion === 'success').length;
+    const failed  = runs.filter(r => r.conclusion === 'failure').length;
+    const rate    = total > 0 ? Math.round((success / total) * 100) : 0;
+
+    // Group by workflow name for per-workflow breakdown
+    const byWorkflow = {};
+    for (const r of runs) {
+        const name = r.workflow_name || 'Unknown';
+        if (!byWorkflow[name]) byWorkflow[name] = { total: 0, success: 0 };
+        byWorkflow[name].total++;
+        if (r.conclusion === 'success') byWorkflow[name].success++;
+    }
+    const workflows = Object.entries(byWorkflow)
+        .map(([name, d]) => ({ name, total: d.total, rate: Math.round((d.success / d.total) * 100) }))
+        .sort((a, b) => a.rate - b.rate)
+        .slice(0, 5);
+
+    return (
+        <div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
+                <StatCard label="Total Runs" value={total} icon={Activity} />
+                <StatCard label="Success Rate" value={`${rate}%`} color={rate >= 90 ? '#34D399' : rate >= 70 ? '#FBBF24' : '#F87171'} icon={CheckCircle2} />
+                <StatCard label="Failures" value={failed} color={failed > 0 ? '#F87171' : '#34D399'} icon={XCircle} />
+            </div>
+            {workflows.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>Workflow Breakdown</div>
+                    {workflows.map(w => (
+                        <div key={w.name} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                            <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', width: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 0 }}>{w.name}</div>
+                            <div style={{ flex: 1, height: 6, background: 'rgba(255,255,255,0.06)', borderRadius: 3 }}>
+                                <div style={{ height: '100%', borderRadius: 3, width: `${w.rate}%`, background: w.rate >= 90 ? '#34D399' : w.rate >= 70 ? '#FBBF24' : '#F87171', transition: 'width 0.6s ease' }} />
+                            </div>
+                            <span style={{ fontSize: 11, fontWeight: 700, color: w.rate >= 90 ? '#34D399' : w.rate >= 70 ? '#FBBF24' : '#F87171', width: 36, textAlign: 'right', flexShrink: 0 }}>{w.rate}%</span>
+                            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.2)', width: 40, textAlign: 'right', flexShrink: 0 }}>{w.total} runs</span>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+};
+
+// ── Main Reports page ─────────────────────────────────────────────────────────
 const Reports = () => {
     const { selectedRepo } = useAppContext();
-    const [data, setData] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [syncing, setSyncing] = useState(false);
-    const [search, setSearch] = useState('');
-    const [filter, setFilter] = useState('all');
+    const [timeRange, setTimeRange] = useState('7d');
     const [downloading, setDownloading] = useState(false);
+    const [syncing, setSyncing] = useState(false);
 
-    const load = useCallback(async (repo) => {
-        setLoading(true);
-        try {
-            const raw = await api.getTestReports(repo || null);
-            const enriched = Array.isArray(raw) ? raw.map(r => ({
-                ...r,
-                run_id: r.run_id,
-                total_tests: parseInt(r.total_tests) || 0,
-                passed: parseInt(r.passed) || 0,
-                failed: parseInt(r.failed) || 0,
-                pass_rate: parseInt(r.total_tests) > 0
-                    ? Math.round((parseInt(r.passed) / parseInt(r.total_tests)) * 100)
-                    : 0
-            })) : [];
-            setData(enriched);
-        } catch {
-            setData([]);
-        } finally {
-            setLoading(false);
-        }
-    }, []);
-
-    const syncAndLoad = useCallback(async (repo) => {
-        if (!repo) { setLoading(false); return; }
+    const handleSync = useCallback(async () => {
+        if (!selectedRepo) return;
         setSyncing(true);
         try {
-            await api.syncReports(repo);
+            await api.syncDoraMetrics(selectedRepo, timeRange === '30d' ? 30 : timeRange === '90d' ? 90 : 7);
         } catch (e) {
-            console.warn('Reports sync failed (continuing with cached):', e.message);
+            console.warn('Sync failed:', e.message);
         } finally {
             setSyncing(false);
         }
-        await load(repo);
-    }, [load]);
-
-    useEffect(() => { syncAndLoad(selectedRepo); }, [selectedRepo, syncAndLoad]);
+    }, [selectedRepo, timeRange]);
 
     const handleDownloadPdf = async () => {
         setDownloading(true);
@@ -68,281 +247,75 @@ const Reports = () => {
             const a = document.createElement('a');
             a.href = url;
             a.download = `pipelinexr-report-${selectedRepo?.replace('/', '-') || 'all'}.pdf`;
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
+            document.body.appendChild(a); a.click(); a.remove();
             window.URL.revokeObjectURL(url);
-        } catch (error) {
-            console.error('Failed to download PDF:', error);
-            const msg = error?.response?.data?.error || error?.message || 'Unknown error';
-            alert(`Failed to generate PDF: ${msg}`);
+        } catch (e) {
+            console.error('PDF failed:', e);
         } finally {
             setDownloading(false);
         }
     };
 
-    if (!selectedRepo) {
-        return (
-            <div style={{ padding: 40, color: 'rgba(255,255,255,0.4)', fontSize: 14 }}>
-                Select a repository to view audit reports.
-            </div>
-        );
-    }
-
-    const filtered = data.filter(r => {
-        const m = !search || (r.suite_name?.toLowerCase().includes(search.toLowerCase()) || String(r.run_id).includes(search));
-        if (filter === 'failed') return m && r.failed > 0;
-        if (filter === 'perfect') return m && r.failed === 0;
-        return m;
-    });
-
-    const tot = data.reduce((a, r) => a + (r.total_tests || 0), 0);
-    const pass = data.reduce((a, r) => a + (r.passed || 0), 0);
-    const fail = data.reduce((a, r) => a + (r.failed || 0), 0);
-    const avgRate = data.length > 0
-        ? Math.round(data.reduce((a, r) => a + (r.pass_rate || 0), 0) / data.length)
-        : 0;
-
-    // Build trend charts from report data (sorted by date)
-    const sorted = [...data].sort((a, b) => new Date(a.latest_run || 0) - new Date(b.latest_run || 0));
-    const trendLabels = sorted.map(r => r.latest_run
-        ? new Date(r.latest_run).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-        : `#${String(r.run_id).slice(-6)}`
+    if (!selectedRepo) return (
+        <div style={{ padding: 40, color: 'rgba(255,255,255,0.3)', fontSize: 14 }}>
+            Select a repository to view the health report.
+        </div>
     );
-    const passRateTrend = sorted.map(r => r.pass_rate || 0);
-    const stepsTrend    = sorted.map(r => r.total_tests || 0);
-    const hasChartData  = sorted.length > 1;
-
-    const trendOpts = (unit = '') => ({
-        responsive: true, maintainAspectRatio: false,
-        interaction: { mode: 'index', intersect: false },
-        animation: { duration: 1200, easing: 'easeOutQuart' },
-        scales: {
-            x: { grid: { display: false }, ticks: { color: 'rgba(255,255,255,0.3)', font: { size: 10 }, maxTicksLimit: 10, maxRotation: 0 }, border: { display: false } },
-            y: { grid: { color: 'rgba(255,255,255,0.03)' }, ticks: { color: 'rgba(255,255,255,0.3)', font: { size: 10 }, padding: 8 }, border: { display: false }, beginAtZero: true },
-        },
-        plugins: {
-            legend: { display: false },
-            tooltip: { backgroundColor: 'rgba(28,28,30,0.95)', borderColor: 'rgba(255,255,255,0.1)', borderWidth: 1, titleColor: '#fff', bodyColor: 'rgba(255,255,255,0.7)', padding: 12, cornerRadius: 12, displayColors: false, callbacks: { label: ctx => ` ${ctx.parsed.y}${unit}` } },
-        },
-    });
 
     return (
-        <div style={{ padding: '32px', maxWidth: 1400, margin: '0 auto', animation: 'fadeIn 0.5s ease-out' }}>
+        <div style={{ padding: '32px', maxWidth: 1200, margin: '0 auto', animation: 'fadeIn 0.5s ease-out' }}>
+
+            {/* Header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 32 }}>
                 <div>
-                    <h1 style={{ fontSize: 32, fontWeight: 800, color: '#fff', letterSpacing: '-0.04em', margin: 0 }}>
-                        Audit Reports
-                    </h1>
+                    <h1 style={{ fontSize: 32, fontWeight: 800, color: '#fff', letterSpacing: '-0.04em', margin: 0 }}>Health Report</h1>
                     <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.4)', marginTop: 4 }}>
-                        Workflow job archives and step-level compliance scoring · {selectedRepo}
+                        Cross-domain engineering health digest · {selectedRepo}
                     </p>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <button onClick={() => syncAndLoad(selectedRepo)} disabled={syncing || loading}
-                        style={{
-                            background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
-                            color: 'rgba(255,255,255,0.6)', padding: '10px 16px', borderRadius: 12,
-                            fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8,
-                            cursor: syncing || loading ? 'not-allowed' : 'pointer',
-                            opacity: syncing || loading ? 0.6 : 1
-                        }}>
-                        <RefreshCw size={14} className={(syncing || loading) ? 'animate-spin' : ''} />
-                        {syncing ? 'Syncing...' : 'Refresh'}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    {/* Time range selector */}
+                    <div style={{ display: 'flex', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10, overflow: 'hidden' }}>
+                        {['7d', '30d', '90d'].map(r => (
+                            <button key={r} onClick={() => setTimeRange(r)} style={{ padding: '8px 14px', fontSize: 12, fontWeight: 700, border: 'none', cursor: 'pointer', background: timeRange === r ? 'rgba(255,255,255,0.1)' : 'transparent', color: timeRange === r ? '#fff' : 'rgba(255,255,255,0.4)', transition: 'all 0.15s' }}>
+                                {r}
+                            </button>
+                        ))}
+                    </div>
+                    <button onClick={handleSync} disabled={syncing} style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.6)', padding: '8px 14px', borderRadius: 10, fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6, cursor: syncing ? 'not-allowed' : 'pointer', opacity: syncing ? 0.6 : 1 }}>
+                        <RefreshCw size={13} className={syncing ? 'animate-spin' : ''} /> {syncing ? 'Syncing...' : 'Sync'}
                     </button>
-                    <button onClick={handleDownloadPdf} disabled={downloading || data.length === 0}
-                        style={{
-                            background: 'rgba(255,255,255,0.05)', color: '#fff', padding: '10px 16px',
-                            borderRadius: 12, fontSize: 13, fontWeight: 700, display: 'flex',
-                            alignItems: 'center', gap: 8, border: '1px solid rgba(255,255,255,0.1)',
-                            cursor: (downloading || data.length === 0) ? 'not-allowed' : 'pointer',
-                            opacity: (downloading || data.length === 0) ? 0.5 : 1
-                        }}>
-                        {downloading ? <RefreshCw size={16} className="animate-spin" /> : <Download size={16} />}
+                    <button onClick={handleDownloadPdf} disabled={downloading} style={{ background: 'rgba(255,255,255,0.05)', color: '#fff', padding: '8px 16px', borderRadius: 10, fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6, border: '1px solid rgba(255,255,255,0.1)', cursor: downloading ? 'not-allowed' : 'pointer', opacity: downloading ? 0.5 : 1 }}>
+                        {downloading ? <RefreshCw size={13} className="animate-spin" /> : <Download size={13} />}
                         {downloading ? 'Generating...' : 'Export PDF'}
                     </button>
                 </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 20, marginBottom: 32 }}>
-                {[
-                    { label: 'Total Steps', val: tot, icon: FileText, color: '#fff' },
-                    { label: 'Green Pass', val: pass, icon: CheckCircle2, color: '#34D399' },
-                    { label: 'Failures', val: fail, icon: XCircle, color: '#F87171' },
-                    { label: 'Quality Index', val: `${avgRate}%`, icon: PieChart, color: avgRate >= 90 ? '#34D399' : '#FBBF24' },
-                ].map((s, i) => (
-                    <div key={s.label} style={{
-                        background: 'rgba(28,28,30,0.4)', backdropFilter: 'blur(10px)',
-                        border: '1px solid rgba(255,255,255,0.08)', borderRadius: 20, padding: '20px',
-                        animation: `slideUp 0.4s ease-out ${i * 0.05}s both`
-                    }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                            <div>
-                                <div style={{ fontSize: 24, fontWeight: 800, color: s.color, lineHeight: 1 }}>{s.val}</div>
-                                <div style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.3)', marginTop: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{s.label}</div>
-                            </div>
-                            <s.icon size={20} style={{ color: 'rgba(255,255,255,0.1)' }} />
-                        </div>
-                    </div>
-                ))}
+            {/* DORA Metrics */}
+            <div style={{ background: 'rgba(28,28,30,0.4)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 24, padding: 28, marginBottom: 20 }}>
+                <SectionHeader icon={TrendingUp} color="#34D399" title="DORA Metrics" sub={`last ${timeRange}`} />
+                <DoraSection repo={selectedRepo} timeRange={timeRange} />
             </div>
 
-            {/* Trend Charts */}
-            {hasChartData && (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 24 }}>
-                    <div style={{ background: 'rgba(28,28,30,0.4)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 20, padding: 24 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-                            <TrendingUp size={14} style={{ color: '#34D399' }} />
-                            <span style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>Pass Rate Trend</span>
-                        </div>
-                        <div style={{ height: 140 }}>
-                            <Line
-                                data={{
-                                    labels: trendLabels,
-                                    datasets: [{
-                                        label: 'Pass Rate',
-                                        data: passRateTrend,
-                                        borderColor: '#34D399',
-                                        backgroundColor: (ctx) => {
-                                            const g = ctx.chart.ctx.createLinearGradient(0, 0, 0, 140);
-                                            g.addColorStop(0, 'rgba(52,211,153,0.2)');
-                                            g.addColorStop(1, 'rgba(52,211,153,0)');
-                                            return g;
-                                        },
-                                        fill: true, tension: 0.4,
-                                        pointRadius: passRateTrend.map(v => v > 0 ? 4 : 0),
-                                        pointHoverRadius: 6,
-                                        pointBackgroundColor: '#34D399',
-                                    }]
-                                }}
-                                options={trendOpts('%')}
-                            />
-                        </div>
-                    </div>
-                    <div style={{ background: 'rgba(28,28,30,0.4)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 20, padding: 24 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-                            <FileText size={14} style={{ color: '#60A5FA' }} />
-                            <span style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>Steps per Run</span>
-                        </div>
-                        <div style={{ height: 140 }}>
-                            <Bar
-                                data={{
-                                    labels: trendLabels,
-                                    datasets: [{
-                                        label: 'Steps',
-                                        data: stepsTrend,
-                                        backgroundColor: (ctx) => {
-                                            const g = ctx.chart.ctx.createLinearGradient(0, 0, 0, 140);
-                                            g.addColorStop(0, '#3B82F6');
-                                            g.addColorStop(1, 'rgba(59,130,246,0.1)');
-                                            return g;
-                                        },
-                                        borderRadius: 6,
-                                        borderSkipped: false,
-                                        barThickness: Math.max(4, Math.min(20, Math.floor(300 / sorted.length))),
-                                    }]
-                                }}
-                                options={trendOpts()}
-                            />
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            <div style={{
-                background: 'rgba(255,255,255,0.02)', borderRadius: 20, padding: '16px 24px',
-                marginBottom: 24, border: '1px solid rgba(255,255,255,0.05)',
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between'
-            }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 20, flex: 1 }}>
-                    <div style={{ position: 'relative', width: 300 }}>
-                        <Search size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'rgba(255,255,255,0.3)' }} />
-                        <input value={search} onChange={e => setSearch(e.target.value)}
-                            placeholder="Find suite or run ID..."
-                            style={{
-                                width: '100%', background: 'rgba(255,255,255,0.03)',
-                                border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12,
-                                padding: '8px 12px 8px 36px', fontSize: 13, color: '#fff', outline: 'none'
-                            }} />
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <Filter size={14} style={{ color: 'rgba(255,255,255,0.2)' }} />
-                        {[{ key: 'all', label: 'All' }, { key: 'failed', label: 'Failures' }, { key: 'perfect', label: 'Perfect' }].map(f => (
-                            <button key={f.key} onClick={() => setFilter(f.key)}
-                                style={{
-                                    padding: '6px 14px', borderRadius: 10, fontSize: 12, fontWeight: 600,
-                                    border: 'none', cursor: 'pointer', transition: 'all 0.2s',
-                                    background: filter === f.key ? 'rgba(255,255,255,0.08)' : 'transparent',
-                                    color: filter === f.key ? '#fff' : 'rgba(255,255,255,0.3)',
-                                }}>{f.label}</button>
-                        ))}
-                    </div>
-                </div>
-                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.2)', fontWeight: 500 }}>{filtered.length} records</div>
+            {/* Security Posture */}
+            <div style={{ background: 'rgba(28,28,30,0.4)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 24, padding: 28, marginBottom: 20 }}>
+                <SectionHeader icon={Shield} color="#F87171" title="Security Posture" sub="open vulnerabilities" />
+                <SecuritySection repo={selectedRepo} />
             </div>
 
-            <div style={{
-                background: 'rgba(28,28,30,0.4)', backdropFilter: 'blur(20px)',
-                border: '1px solid rgba(255,255,255,0.08)', borderRadius: 24, overflow: 'hidden'
-            }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-                    <thead>
-                        <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', background: 'rgba(255,255,255,0.02)' }}>
-                            {['Audit ID', 'Suite Name', 'Steps', 'Status', 'Integrity', 'Timestamp', ''].map(h => (
-                                <th key={h} style={{ padding: '16px 24px', fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</th>
-                            ))}
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {loading ? (
-                            Array.from({ length: 5 }).map((_, i) => (
-                                <tr key={i}><td colSpan="7" style={{ padding: '20px 24px' }}><div className="skeleton rounded-lg h-6 w-full" /></td></tr>
-                            ))
-                        ) : filtered.length === 0 ? (
-                            <tr>
-                                <td colSpan="7" style={{ padding: '60px', textAlign: 'center', color: 'rgba(255,255,255,0.2)', fontSize: 14 }}>
-                                    {data.length === 0
-                                        ? 'No job data yet — trigger a workflow run on GitHub to populate reports'
-                                        : 'No records match your filter'}
-                                </td>
-                            </tr>
-                        ) : filtered.map(r => (
-                            <tr key={`${r.run_id}-${r.suite_name}`}
-                                style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', transition: 'all 0.2s' }}
-                                className="hover:bg-white/[0.02] group">
-                                <td style={{ padding: '16px 24px', fontSize: 13, fontWeight: 700, color: 'rgba(255,255,255,0.3)', fontFamily: 'monospace' }}>#{String(r.run_id).slice(-6)}</td>
-                                <td style={{ padding: '16px 24px', fontSize: 14, fontWeight: 700, color: '#fff' }}>{r.suite_name}</td>
-                                <td style={{ padding: '16px 24px', fontSize: 13, color: 'rgba(255,255,255,0.5)', fontWeight: 600 }}>{r.total_tests} steps</td>
-                                <td style={{ padding: '16px 24px' }}>
-                                    <div style={{ display: 'flex', gap: 6 }}>
-                                        <div style={{ padding: '2px 8px', borderRadius: 6, background: 'rgba(52,211,153,0.1)', color: '#34D399', fontSize: 10, fontWeight: 800 }}>{r.passed}✓</div>
-                                        {r.failed > 0 && <div style={{ padding: '2px 8px', borderRadius: 6, background: 'rgba(248,113,113,0.1)', color: '#F87171', fontSize: 10, fontWeight: 800 }}>{r.failed}✗</div>}
-                                    </div>
-                                </td>
-                                <td style={{ padding: '16px 24px' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                        <div style={{ flex: 1, minWidth: 60, height: 4, background: 'rgba(255,255,255,0.05)', borderRadius: 2 }}>
-                                            <div style={{ height: '100%', borderRadius: 2, background: r.pass_rate >= 90 ? '#34D399' : '#FBBF24', width: `${r.pass_rate}%` }} />
-                                        </div>
-                                        <span style={{ fontSize: 12, fontWeight: 700, color: r.pass_rate >= 90 ? '#34D399' : '#FBBF24' }}>{r.pass_rate}%</span>
-                                    </div>
-                                </td>
-                                <td style={{ padding: '16px 24px', fontSize: 12, color: 'rgba(255,255,255,0.3)', fontWeight: 500 }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                        <Clock size={12} />
-                                        {r.latest_run ? new Date(r.latest_run).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Pending'}
-                                    </div>
-                                </td>
-                                <td style={{ padding: '16px 24px', textAlign: 'right' }}>
-                                    <button style={{ background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.2)', padding: 8, cursor: 'pointer' }}
-                                        className="group-hover:text-white group-hover:translate-x-1 transition-all">
-                                        <ChevronRight size={16} />
-                                    </button>
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
+            {/* Pipeline Reliability */}
+            <div style={{ background: 'rgba(28,28,30,0.4)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 24, padding: 28, marginBottom: 20 }}>
+                <SectionHeader icon={Activity} color="#60A5FA" title="Pipeline Reliability" sub={`last 50 runs`} />
+                <PipelineSection repo={selectedRepo} timeRange={timeRange} />
+            </div>
+
+            {/* Report metadata footer */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 0', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                <FileText size={12} style={{ color: 'rgba(255,255,255,0.2)' }} />
+                <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.2)' }}>
+                    Generated {new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} · {selectedRepo} · PipelineXR Health Report
+                </span>
             </div>
         </div>
     );

@@ -417,7 +417,8 @@ async function hfHealth() {
     if (!HF_URL) return { ok: false, reason: 'not configured' };
     try {
         const controller = new AbortController();
-        setTimeout(() => controller.abort(), 8000);
+        // 3 min timeout — HF Space cold start loads a 4.4GB model, takes 2-3 min
+        setTimeout(() => controller.abort(), 3 * 60 * 1000);
         const r = await fetch(`${HF_URL}/health`, { signal: controller.signal });
         if (!r.ok) return { ok: false, reason: `HTTP ${r.status}` };
         const data = await r.json();
@@ -433,8 +434,8 @@ if (HF_URL) {
         if (s.ok) console.log(`[LLM] HF Space is warm — model: ${s.model || 'unknown'}`);
         else console.log(`[LLM] HF Space not ready yet (${s.reason}) — will retry`);
     });
-    // Keep warm every 4 minutes
+    // Keep warm every 10 minutes (HF sleeps after ~15 min of inactivity)
     setInterval(() => {
         hfHealth().catch(() => {});
-    }, 4 * 60 * 1000);
+    }, 10 * 60 * 1000);
 }
