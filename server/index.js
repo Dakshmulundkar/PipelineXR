@@ -695,89 +695,194 @@ app.get('/api/reports/download', expensiveLimiter, async (req, res) => {
     try {
         const userId = getUserId(req); if (!userId) return res.status(401).json({ error: 'Authentication required' });
         const { repository } = req.query;
-        const rawReports = await analytics.getTestReports(userId, repository || null);
 
-        const reports = rawReports.map(r => ({
-            ...r,
-            total_tests: parseInt(r.total_tests) || 0,
-            passed: parseInt(r.passed) || 0,
-            failed: parseInt(r.failed) || 0,
-            pass_rate: parseInt(r.total_tests) > 0 ? Math.round((parseInt(r.passed) / parseInt(r.total_tests)) * 100) : 0
-        }));
+        // Gather all data in parallel
+        const [doraData, secData, runsRaw] = await Promise.allSettled([
+            metricsService.getDoraMetrics(repository || null, 30, userId),
+            securityService.getSummary(repository || null, userId),
+            new Promise((resolve, reject) => {
+                const sql = repository
+                    ? `SELECT run_id, run_number, workflow_name, conclusion, run_started_at, duration_seconds, head_branch FROM workflow_runs WHERE user_id=? AND repository=? ORDER BY run_started_at DESC LIMIT 50`
+                    : `SELECT run_id, run_number, workflow_name, conclusion, run_started_at, duration_seconds, head_branch FROM workflow_runs WHERE user_id=? ORDER BY run_started_at DESC LIMIT 50`;
+                const params = repository ? [userId, repository] : [userId];
+                const db = require('../services/database');
+                db.all(sql, params, (err, rows) => err ? reject(err) : resolve(rows || []));
+            }),
+        ]);
 
-        const tot = reports.reduce((a, r) => a + (r.total_tests || 0), 0);
-        const pass = reports.reduce((a, r) => a + (r.passed || 0), 0);
-        const fail = reports.reduce((a, r) => a + (r.failed || 0), 0);
-        const avgRate = reports.length > 0
-            ? Math.round(reports.reduce((a, r) => a + (r.pass_rate || 0), 0) / reports.length) : 0;
+        const dora = doraData.status === 'fulfilled' ? doraData.value : {};
+        const sec  = secData.status  === 'fulfilled' ? secData.value  : {};
+        const runs = runsRaw.status  === 'fulfilled' ? runsRaw.value  : [];
 
         const PDFDocument = require('pdfkit');
         const doc = new PDFDocument({ margin: 40, size: 'A4' });
 
         res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', `attachment; filename=pipelinexr-report-${Date.now()}.pdf`);
+        res.setHeader('Content-Disposition', `attachment; filename=pipelinexr-health-report-${Date.now()}.pdf`);
         doc.pipe(res);
 
-        // Header
-        doc.fontSize(22).font('Helvetica-Bold').text('PipelineXR Audit Report', { align: 'left' });
-        doc.fontSize(10).font('Helvetica').fillColor('#666')
-            .text(`Generated ${new Date().toLocaleString()}${repository ? `  ·  ${repository}` : ''}`, { align: 'left' });
-        doc.moveDown(1.5);
+        const W = 515; // usable width
 
-        // Stats row
-        const stats = [
-            { label: 'Total Steps', val: tot },
-            { label: 'Passed', val: pass },
-            { label: 'Failed', val: fail },
-            { label: 'Quality Index', val: `${avgRate}%` },
-        ];
-        const boxW = 115, boxH = 52, startX = 40;
-        stats.forEach((s, i) => {
-            const x = startX + i * (boxW + 8);
-            const y = doc.y;
-            doc.rect(x, y, boxW, boxH).fillAndStroke('#f5f5f5', '#e0e0e0');
-            doc.fillColor('#111').fontSize(20).font('Helvetica-Bold').text(String(s.val), x + 8, y + 8, { width: boxW - 16 });
-            doc.fillColor('#888').fontSize(9).font('Helvetica').text(s.label.toUpperCase(), x + 8, y + 34, { width: boxW - 16 });
-        });
-        doc.moveDown(4.5);
+        // ── Cover header ──────────────────────────────────────────────────────
+        doc.rect(40, 40, W, 70).fill('#0a0a0f');
+        doc.fillColor('#fff').fontSize(22).font('Helvetica-Bold')
+            .text('PipelineXR Health Report', 56, 52);
+        doc.fillColor('#888').fontSize(10).font('Helvetica')
+            .text(`${repository || 'All Repositories'}  ·  Generated ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}  ·  Last 30 days`, 56, 80);
+        doc.moveDown(3.5);
 
-        if (reports.length === 0) {
-            doc.fillColor('#888').fontSize(12).text('No job data available for this repository yet.');
-        } else {
+        // ── Helper: section title ─────────────────────────────────────────────
+        const sectionTitle = (title) => {
+            doc.moveDown(0.5);
+            doc.rect(40, doc.y, W, 24).fill('#f5f5f5');
+            doc.fillColor('#111').fontSize(11).font('Helvetica-Bold')
+                .text(title, 48, doc.y - 18);
+            doc.moveDown(1.2);
+        };
+
+        // ── Helper: stat boxes ────────────────────────────────────────────────
+        const statBoxes = (items) => {
+            const boxW = Math.floor(W / items.length) - 4;
+            const startX = 40, y = doc.y;
+            items.forEach((s, i) => {
+                const x = startX + i * (boxW + 4);
+                doc.rect(x, y, boxW, 56).fillAndStroke('#fafafa', '#e8e8e8');
+                doc.fillColor(s.color || '#111').fontSize(22).font('Helvetica-Bold')
+                    .text(String(s.val), x + 8, y + 8, { width: boxW - 16 });
+                doc.fillColor('#888').fontSize(8).font('Helvetica')
+                    .text(s.label.toUpperCase(), x + 8, y + 36, { width: boxW - 16 });
+            });
+            doc.moveDown(4.2);
+        };
+
+        // ── DORA Metrics ──────────────────────────────────────────────────────
+        sectionTitle('DORA Metrics  (last 30 days)');
+        const successRate = dora.successRate ?? dora.success_rate ?? null;
+        const avgBuild    = dora.avgBuildDuration ?? dora.avg_build_duration ?? null;
+        const totalDeploys = dora.totalDeployments ?? dora.total_deployments ?? 0;
+        const grade = dora.performanceGrade || dora.performance_grade || '—';
+        const gradeColor = { Elite: '#16a34a', High: '#2563eb', Medium: '#d97706', Low: '#dc2626' }[grade] || '#111';
+
+        statBoxes([
+            { label: 'Deployments',  val: totalDeploys },
+            { label: 'Success Rate', val: successRate != null ? `${Math.round(successRate)}%` : '—', color: successRate >= 90 ? '#16a34a' : successRate >= 70 ? '#d97706' : '#dc2626' },
+            { label: 'Avg Build',    val: avgBuild != null ? `${Math.round(avgBuild)}m` : '—' },
+            { label: 'DORA Grade',   val: grade, color: gradeColor },
+        ]);
+
+        // ── Security Posture ──────────────────────────────────────────────────
+        sectionTitle('Security Posture');
+        const posture = (sec.critical || 0) > 0 ? 'CRITICAL' : (sec.high || 0) > 0 ? 'AT-RISK' : 'SECURE';
+        const postureColor = posture === 'CRITICAL' ? '#dc2626' : posture === 'AT-RISK' ? '#d97706' : '#16a34a';
+
+        statBoxes([
+            { label: 'Posture',  val: posture, color: postureColor },
+            { label: 'Critical', val: sec.critical || 0, color: (sec.critical || 0) > 0 ? '#dc2626' : '#111' },
+            { label: 'High',     val: sec.high     || 0, color: (sec.high     || 0) > 0 ? '#ea580c' : '#111' },
+            { label: 'Medium',   val: sec.medium   || 0 },
+            { label: 'Low',      val: sec.low      || 0 },
+        ]);
+
+        // ── Pipeline Reliability ──────────────────────────────────────────────
+        sectionTitle('Pipeline Reliability  (last 50 runs)');
+        const total   = runs.length;
+        const success = runs.filter(r => r.conclusion === 'success').length;
+        const failed  = runs.filter(r => r.conclusion === 'failure').length;
+        const rate    = total > 0 ? Math.round((success / total) * 100) : 0;
+
+        statBoxes([
+            { label: 'Total Runs',   val: total },
+            { label: 'Success Rate', val: `${rate}%`, color: rate >= 90 ? '#16a34a' : rate >= 70 ? '#d97706' : '#dc2626' },
+            { label: 'Failures',     val: failed, color: failed > 0 ? '#dc2626' : '#111' },
+        ]);
+
+        // Per-workflow breakdown table
+        const byWorkflow = {};
+        for (const r of runs) {
+            const name = r.workflow_name || 'Unknown';
+            if (!byWorkflow[name]) byWorkflow[name] = { total: 0, success: 0 };
+            byWorkflow[name].total++;
+            if (r.conclusion === 'success') byWorkflow[name].success++;
+        }
+        const workflows = Object.entries(byWorkflow)
+            .map(([name, d]) => ({ name, total: d.total, rate: Math.round((d.success / d.total) * 100) }))
+            .sort((a, b) => a.rate - b.rate);
+
+        if (workflows.length > 0) {
             // Table header
-            const cols = [60, 160, 50, 50, 50, 45, 80];
-            const headers = ['Run ID', 'Suite / Job', 'Steps', 'Passed', 'Failed', 'Rate', 'Date'];
+            const cols = [280, 80, 80, 75];
+            const headers = ['Workflow', 'Runs', 'Success Rate', 'Status'];
             let tx = 40, ty = doc.y;
-            doc.rect(tx, ty, 515, 20).fill('#f0f0f0');
+            doc.rect(tx, ty, W, 18).fill('#f0f0f0');
             headers.forEach((h, i) => {
-                doc.fillColor('#555').fontSize(9).font('Helvetica-Bold')
-                    .text(h, tx, ty + 5, { width: cols[i], align: 'left' });
+                doc.fillColor('#555').fontSize(8).font('Helvetica-Bold')
+                    .text(h, tx + 4, ty + 4, { width: cols[i] });
                 tx += cols[i];
             });
-            doc.moveDown(1.2);
+            doc.moveDown(1);
 
-            reports.forEach((r, idx) => {
+            workflows.forEach((w, idx) => {
                 if (doc.y > 750) { doc.addPage(); }
                 tx = 40; ty = doc.y;
-                if (idx % 2 === 0) doc.rect(tx, ty - 2, 515, 18).fill('#fafafa');
-                const row = [
-                    `#${String(r.run_id).slice(-6)}`,
-                    r.suite_name || 'N/A',
-                    String(r.total_tests),
-                    String(r.passed),
-                    String(r.failed),
-                    `${r.pass_rate}%`,
-                    r.latest_run ? new Date(r.latest_run).toLocaleDateString() : '-',
-                ];
+                if (idx % 2 === 0) doc.rect(tx, ty - 2, W, 16).fill('#fafafa');
+                const wRate = w.rate;
+                const statusLabel = wRate >= 90 ? 'Healthy' : wRate >= 70 ? 'Unstable' : 'Failing';
+                const statusColor = wRate >= 90 ? '#16a34a' : wRate >= 70 ? '#d97706' : '#dc2626';
+                const row = [w.name, String(w.total), `${wRate}%`, statusLabel];
+                const colors = ['#111', '#111', statusColor, statusColor];
                 row.forEach((cell, i) => {
-                    const color = i === 3 ? '#16a34a' : i === 4 && r.failed > 0 ? '#dc2626' : '#111';
-                    doc.fillColor(color).fontSize(9).font('Helvetica')
-                        .text(cell, tx, ty, { width: cols[i], align: 'left' });
+                    doc.fillColor(colors[i]).fontSize(8).font('Helvetica')
+                        .text(cell, tx + 4, ty, { width: cols[i] });
                     tx += cols[i];
                 });
                 doc.moveDown(0.8);
             });
         }
+
+        // ── Build History (last 20) ───────────────────────────────────────────
+        if (doc.y > 650) doc.addPage();
+        sectionTitle('Recent Build History  (last 20 runs)');
+        const recent = [...runs].slice(0, 20);
+        if (recent.length > 0) {
+            const cols2 = [60, 160, 100, 80, 115];
+            const headers2 = ['Build #', 'Workflow', 'Branch', 'Duration', 'Date'];
+            let tx = 40, ty = doc.y;
+            doc.rect(tx, ty, W, 18).fill('#f0f0f0');
+            headers2.forEach((h, i) => {
+                doc.fillColor('#555').fontSize(8).font('Helvetica-Bold')
+                    .text(h, tx + 4, ty + 4, { width: cols2[i] });
+                tx += cols2[i];
+            });
+            doc.moveDown(1);
+
+            recent.forEach((r, idx) => {
+                if (doc.y > 750) { doc.addPage(); }
+                tx = 40; ty = doc.y;
+                if (idx % 2 === 0) doc.rect(tx, ty - 2, W, 16).fill('#fafafa');
+                const dur = r.duration_seconds ? `${Math.round(r.duration_seconds / 60)}m ${r.duration_seconds % 60}s` : '—';
+                const date = r.run_started_at ? new Date(r.run_started_at).toLocaleDateString() : '—';
+                const conclusionColor = r.conclusion === 'success' ? '#16a34a' : r.conclusion === 'failure' ? '#dc2626' : '#888';
+                const row2 = [
+                    `#${r.run_number || String(r.run_id).slice(-6)}`,
+                    r.workflow_name || '—',
+                    r.head_branch || '—',
+                    dur,
+                    date,
+                ];
+                row2.forEach((cell, i) => {
+                    const color = i === 0 ? conclusionColor : '#111';
+                    doc.fillColor(color).fontSize(8).font('Helvetica')
+                        .text(cell, tx + 4, ty, { width: cols2[i] });
+                    tx += cols2[i];
+                });
+                doc.moveDown(0.8);
+            });
+        }
+
+        // ── Footer ────────────────────────────────────────────────────────────
+        doc.moveDown(1);
+        doc.fillColor('#bbb').fontSize(8).font('Helvetica')
+            .text(`PipelineXR Health Report  ·  ${repository || 'All Repositories'}  ·  ${new Date().toISOString().split('T')[0]}`, 40, doc.y, { align: 'center', width: W });
 
         doc.end();
     } catch (error) {
