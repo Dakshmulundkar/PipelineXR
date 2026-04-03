@@ -414,7 +414,7 @@ const Dashboard = () => {
             {!loading && <NeedsAttention secSummary={secSummary} runs={runs} sites={sites} />}
 
             {/* ── KPI Row ── */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 20, marginBottom: 24 }}>
+            <div className="kpi-grid-4" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 20, marginBottom: 24 }}>
                 {kpis.map((k, i) => (
                     <div key={k.title} style={{ animation: `slideUp 0.5s ease-out ${i*0.08}s both` }}>
                         <StatCard {...k} loading={loading} />
@@ -423,7 +423,7 @@ const Dashboard = () => {
             </div>
 
             {/* ── Charts + Activity Feed ── */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 340px', gap: 20, marginBottom: 24 }}>
+            <div className="chart-activity-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 340px', gap: 20, marginBottom: 24 }}>
                 <ChartCard title="Deployment Volume" icon={Rocket} badge={{ label: range, className: 'badge-muted' }}>
                     {loading ? <div className="h-full skeleton rounded-xl" /> : chartData.dep ? <Bar key={`dep-${range}`} data={chartData.dep} options={chartOpts()} /> : <div className="flex h-full w-full items-center justify-center text-slate-500 text-sm">No data</div>}
                 </ChartCard>
@@ -434,7 +434,7 @@ const Dashboard = () => {
             </div>
 
             {/* ── Security + Sites ── */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+            <div className="security-sites-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
                 <SecurityCard secSummary={secSummary} loading={loading} />
                 <SitesCard sites={sites} loading={sitesLoading} />
             </div>

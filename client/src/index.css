@@ -359,3 +359,36 @@ h5 {
   color: var(--text-secondary);
   border-color: var(--border);
 }
+
+/* ── Responsive layout ────────────────────────────────────────────────────── */
+/* Tablet: collapse 4-col KPI grids to 2-col */
+@media (max-width: 1024px) {
+  .kpi-grid-4 {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+  .chart-activity-grid {
+    grid-template-columns: 1fr 1fr !important;
+  }
+  .chart-activity-grid > *:last-child {
+    grid-column: 1 / -1;
+  }
+}
+
+/* Mobile: single column everything */
+@media (max-width: 640px) {
+  .kpi-grid-4 {
+    grid-template-columns: 1fr !important;
+  }
+  .chart-activity-grid {
+    grid-template-columns: 1fr !important;
+  }
+  .security-sites-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* Pulse animation for live indicators */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}

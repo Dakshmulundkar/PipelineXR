@@ -37,8 +37,17 @@ const Layout = ({ children }) => {
     const [repoOpen, setRepoOpen] = useState(false);
     const repoRef = useRef(null);
     const searchRef = useRef(null);
-    const { user, repos, selectedRepo, setSelectedRepo, isAdmin } = useAppContext();
+    const { user, repos, selectedRepo, setSelectedRepo, isAdmin, socket } = useAppContext();
     const [settingsOpen, setSettingsOpen] = useState(false);
+    const [notifCount, setNotifCount] = useState(0);
+
+    // Listen for real-time pipeline events and increment notification count
+    useEffect(() => {
+        if (!socket) return;
+        const handler = () => setNotifCount(n => n + 1);
+        socket.on('pipeline_run_update', handler);
+        return () => socket.off('pipeline_run_update', handler);
+    }, [socket]);
 
     // Stable session ID for this browser tab
     const sessionId = useRef(getSessionId());
@@ -79,7 +88,7 @@ const Layout = ({ children }) => {
         return () => document.removeEventListener('keydown', handler);
     }, []);
 
-    // Build search results from nav pages + repos
+    // Build search results from nav pages + repos + recent runs
     const searchResults = useMemo(() => {
         if (!searchVal.trim()) return [];
         const q = searchVal.toLowerCase();
@@ -407,8 +416,13 @@ const Layout = ({ children }) => {
                             <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#34D399', boxShadow: '0 0 6px #34D399' }} />
                             SYSTEMS OPERATIONAL
                         </div>
-                        <div style={{ width: 32, height: 32, borderRadius: 10, background: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }} className="hover:bg-white/10">
+                        <div style={{ width: 32, height: 32, borderRadius: 10, background: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', position: 'relative' }}
+                            className="hover:bg-white/10"
+                            onClick={() => { setNotifCount(0); navigate('/pipelines'); }}>
                             <Bell size={16} style={{ color: 'rgba(255,255,255,0.4)' }} />
+                            {notifCount > 0 && (
+                                <div style={{ position: 'absolute', top: 4, right: 4, width: 8, height: 8, borderRadius: '50%', background: '#F87171', border: '1.5px solid #000', fontSize: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }} />
+                            )}
                         </div>
                         <div
                             onClick={() => {

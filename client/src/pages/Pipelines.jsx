@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { GitBranch, PlayCircle, Clock, RefreshCw, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
-import { Activity, ShieldCheck, User, ExternalLink, TrendingUp } from 'lucide-react';
+import { Activity, ShieldCheck, User, ExternalLink, TrendingUp, ChevronDown, ChevronUp, List } from 'lucide-react';
 import { Bar } from 'react-chartjs-2';
 import {
     Chart as ChartJS, CategoryScale, LinearScale, BarElement,
@@ -20,6 +20,94 @@ const statusColor = {
     failure: '#F87171',
     running: '#60A5FA',
     in_progress: '#60A5FA',
+};
+
+// ── Run Drill-Down panel ──────────────────────────────────────────────────────
+const stepColor = (conclusion) => {
+    if (conclusion === 'success')   return '#34D399';
+    if (conclusion === 'failure')   return '#F87171';
+    if (conclusion === 'skipped')   return '#9CA3AF';
+    if (conclusion === 'cancelled') return '#9CA3AF';
+    return '#FBBF24'; // in_progress
+};
+
+const RunDrillDown = ({ runId }) => {
+    const [detail, setDetail] = useState(null);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        setLoading(true);
+        api.getPipelineRuns(1, null) // we'll use the run detail endpoint
+            .catch(() => null)
+            .finally(() => {});
+
+        // Use the run detail endpoint
+        fetch(`${import.meta.env.VITE_API_BASE_URL || ''}/api/pipeline/runs/${runId}`, {
+            credentials: 'include',
+            headers: localStorage.getItem('gh_token')
+                ? { 'x-github-token': localStorage.getItem('gh_token') }
+                : {},
+        })
+            .then(r => r.ok ? r.json() : null)
+            .then(data => { setDetail(data); setLoading(false); })
+            .catch(() => setLoading(false));
+    }, [runId]);
+
+    if (loading) return (
+        <div style={{ padding: '16px 24px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {[1,2,3].map(i => <div key={i} className="skeleton" style={{ height: 32, width: 120, borderRadius: 8 }} />)}
+            </div>
+        </div>
+    );
+
+    if (!detail || !detail.jobs || detail.jobs.length === 0) return (
+        <div style={{ padding: '12px 24px', borderTop: '1px solid rgba(255,255,255,0.05)', fontSize: 12, color: 'rgba(255,255,255,0.3)' }}>
+            No job details available.
+        </div>
+    );
+
+    return (
+        <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', background: 'rgba(0,0,0,0.2)' }}>
+            {detail.jobs.map((job, ji) => {
+                const jobColor = stepColor(job.conclusion || job.status);
+                const jobDur = job.duration_seconds ? `${Math.floor(job.duration_seconds/60)}m ${job.duration_seconds%60}s` : null;
+                return (
+                    <div key={ji} style={{ borderBottom: ji < detail.jobs.length-1 ? '1px solid rgba(255,255,255,0.04)' : 'none' }}>
+                        {/* Job header */}
+                        <div style={{ padding: '10px 24px', display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <div style={{ width: 8, height: 8, borderRadius: '50%', background: jobColor, flexShrink: 0 }} />
+                            <span style={{ fontSize: 12, fontWeight: 700, color: '#fff' }}>{job.job_name}</span>
+                            {jobDur && <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)' }}>{jobDur}</span>}
+                            <span style={{ fontSize: 10, fontWeight: 700, color: jobColor, textTransform: 'uppercase', marginLeft: 'auto' }}>{job.conclusion || job.status}</span>
+                            {job.html_url && (
+                                <a href={job.html_url} target="_blank" rel="noopener noreferrer" style={{ color: 'rgba(255,255,255,0.2)', display: 'flex' }}>
+                                    <ExternalLink size={12} />
+                                </a>
+                            )}
+                        </div>
+                        {/* Steps */}
+                        {job.steps && job.steps.length > 0 && (
+                            <div style={{ paddingLeft: 40, paddingBottom: 10 }}>
+                                {job.steps.map((step, si) => {
+                                    const sc = stepColor(step.conclusion || step.status);
+                                    const stepDur = step.duration_seconds ? `${step.duration_seconds}s` : null;
+                                    return (
+                                        <div key={si} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 0' }}>
+                                            <div style={{ width: 5, height: 5, borderRadius: '50%', background: sc, flexShrink: 0 }} />
+                                            <span style={{ fontSize: 11, color: step.conclusion === 'failure' ? '#F87171' : 'rgba(255,255,255,0.5)', flex: 1 }}>{step.name}</span>
+                                            {stepDur && <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.2)' }}>{stepDur}</span>}
+                                            <span style={{ fontSize: 9, fontWeight: 700, color: sc, textTransform: 'uppercase', width: 60, textAlign: 'right' }}>{step.conclusion || step.status || '—'}</span>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+                );
+            })}
+        </div>
+    );
 };
 
 // ── Workflow Trigger Dropdown ────────────────────────────────────────────────
@@ -129,6 +217,7 @@ const WorkflowTriggerDropdown = ({ selectedRepo, load }) => {
 const Pipelines = () => {
     const { selectedRepo, socket } = useAppContext();
     const [runs, setRuns] = useState([]);
+    const [expandedRun, setExpandedRun] = useState(null);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
 
@@ -347,10 +436,14 @@ const Pipelines = () => {
                             <div key={run.id || i}
                                 style={{
                                     background: 'rgba(28,28,30,0.4)', backdropFilter: 'blur(20px)',
-                                    border: '1px solid rgba(255,255,255,0.08)', borderRadius: 20,
-                                    padding: '16px', display: 'flex', alignItems: 'center', gap: 24,
+                                    border: `1px solid ${expandedRun === run.run_id ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.08)'}`, borderRadius: 20,
+                                    overflow: 'hidden',
                                     animation: `slideUp 0.5s ease-out ${i * 0.05}s both`
                                 }} className="hover:border-white/20 transition-all group">
+                                <div
+                                    onClick={() => setExpandedRun(expandedRun === run.run_id ? null : run.run_id)}
+                                    style={{ padding: '16px', display: 'flex', alignItems: 'center', gap: 24, cursor: 'pointer' }}
+                                >
 
                                 {/* Status icon */}
                                 <div style={{
@@ -413,10 +506,18 @@ const Pipelines = () => {
 
                                 {/* External link */}
                                 <a href={run.html_url} target="_blank" rel="noopener noreferrer"
+                                    onClick={e => e.stopPropagation()}
                                     style={{ padding: 8, color: 'rgba(255,255,255,0.2)', transition: 'all 0.2s', display: 'flex' }}
                                     className="group-hover:text-white group-hover:translate-x-1">
                                     <ExternalLink size={18} />
                                 </a>
+                                {/* Expand indicator */}
+                                <div style={{ color: 'rgba(255,255,255,0.2)', flexShrink: 0 }}>
+                                    {expandedRun === run.run_id ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                                </div>
+                                </div>{/* end clickable row */}
+                                {/* Drill-down */}
+                                {expandedRun === run.run_id && <RunDrillDown runId={run.run_id} />}
                             </div>
                         );
                     })

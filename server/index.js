@@ -468,13 +468,44 @@ app.post('/api/github/webhook', async (req, res) => {
             req.body.toString()
         );
 
-        // Broadcast to connected clients
-        io.emit('github_webhook', {
-            eventType,
-            deliveryId,
-            payload,
-            timestamp: new Date().toISOString()
-        });
+        // Broadcast targeted real-time events to connected clients
+        if (eventType === 'workflow_run') {
+            const run = payload.workflow_run;
+            // Push to all clients — frontend filters by repo
+            io.emit('pipeline_run_update', {
+                run_id:        run.id,
+                run_number:    run.run_number,
+                workflow_name: run.name,
+                status:        run.status,
+                conclusion:    run.conclusion,
+                head_branch:   run.head_branch,
+                repository:    payload.repository?.full_name,
+                run_started_at: run.run_started_at,
+                updated_at:    run.updated_at,
+                html_url:      run.html_url,
+                timestamp:     new Date().toISOString(),
+            });
+            // If completed, also push a dashboard refresh signal
+            if (run.status === 'completed') {
+                io.emit('dashboard_refresh', {
+                    repository: payload.repository?.full_name,
+                    reason: 'workflow_completed',
+                    timestamp: new Date().toISOString(),
+                });
+            }
+        }
+        if (eventType === 'workflow_job') {
+            const job = payload.workflow_job;
+            io.emit('pipeline_job_update', {
+                job_id:     job.id,
+                run_id:     job.run_id,
+                job_name:   job.name,
+                status:     job.status,
+                conclusion: job.conclusion,
+                repository: payload.repository?.full_name,
+                timestamp:  new Date().toISOString(),
+            });
+        }
 
         console.log('[WEBHOOK] Event processed successfully');
         res.status(200).send('Webhook received');
@@ -1985,6 +2016,42 @@ async function startServer() {
             const db = require('../services/database');
             db.run(`DELETE FROM session WHERE expire < NOW()`, [], () => {});
         }, 24 * 60 * 60 * 1000);
+
+        // Data retention cleanup — runs daily, keeps last 90 days
+        // Prevents unbounded DB growth on Neon free tier (0.5GB limit)
+        const runRetentionCleanup = () => {
+            const db = require('../services/database');
+            const tables = [
+                { table: 'uptime_checks',      col: 'checked_at' },
+                { table: 'page_views',          col: 'timestamp' },
+                { table: 'ids_events',          col: 'timestamp' },
+                { table: 'pipeline_analytics',  col: 'timestamp' },
+                { table: 'visitor_events',      col: 'timestamp' },
+                { table: 'github_webhooks',     col: 'created_at' },
+            ];
+            for (const { table, col } of tables) {
+                db.run(
+                    `DELETE FROM ${table} WHERE ${col} < NOW() - INTERVAL '90 days'`,
+                    [],
+                    (err) => { if (err) console.warn(`[CLEANUP] ${table}: ${err.message}`); }
+                );
+            }
+            // Keep workflow_runs to 500 per user (oldest first)
+            db.run(
+                `DELETE FROM workflow_runs WHERE id IN (
+                    SELECT id FROM (
+                        SELECT id, ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY run_started_at DESC) AS rn
+                        FROM workflow_runs
+                    ) ranked WHERE rn > 500
+                )`,
+                [],
+                (err) => { if (err) console.warn(`[CLEANUP] workflow_runs: ${err.message}`); }
+            );
+            console.log('[CLEANUP] Data retention cleanup complete');
+        };
+        // Run once at startup (after 5 min delay) then every 24h
+        setTimeout(runRetentionCleanup, 5 * 60 * 1000);
+        setInterval(runRetentionCleanup, 24 * 60 * 60 * 1000);
 
         // Start server
         server.listen(PORT, () => {
