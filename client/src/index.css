@@ -392,3 +392,12 @@ h5 {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
 }
+
+/* Hide scrollbar but keep scroll functionality */
+.hide-scrollbar {
+  scrollbar-width: none;       /* Firefox */
+  -ms-overflow-style: none;    /* IE/Edge */
+}
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;               /* Chrome/Safari */
+}

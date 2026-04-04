@@ -119,11 +119,11 @@ const timeAgo = (ts) => {
 
 const ActivityFeed = ({ runs, loading }) => {
 
-    const recent = (runs||[]).slice(0, 8);
+    const recent = (runs||[]).slice(0, 20);
 
     return (
         <div style={{ background: 'rgba(28,28,30,0.4)', backdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 24, overflow: 'hidden', height: '100%', display: 'flex', flexDirection: 'column' }}>
-            <div style={{ padding: '20px 24px', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ padding: '20px 24px', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
                 <Activity size={15} style={{ color: 'rgba(255,255,255,0.4)' }} />
                 <span style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>Recent Activity</span>
                 <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -131,7 +131,8 @@ const ActivityFeed = ({ runs, loading }) => {
                     <span style={{ fontSize: 10, color: '#34D399', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Live</span>
                 </div>
             </div>
-            <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
+            <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0', scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+                className="hide-scrollbar">
                 {loading ? (
                     Array.from({length: 5}).map((_,i) => (
                         <div key={i} style={{ padding: '12px 24px', display: 'flex', gap: 12, alignItems: 'center' }}>
@@ -152,11 +153,14 @@ const ActivityFeed = ({ runs, loading }) => {
                             <div style={{ width: 8, height: 8, borderRadius: '50%', background: dotColor, flexShrink: 0, marginTop: 4 }} />
                             <div style={{ flex: 1, minWidth: 0 }}>
                                 <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                    {run.workflow_name || 'Workflow'}
+                                    {run.head_commit_message
+                                        ? run.head_commit_message.split('\n')[0].slice(0, 60)
+                                        : run.workflow_name || 'Workflow'}
                                 </div>
                                 <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 2, display: 'flex', gap: 8, alignItems: 'center' }}>
                                     <GitBranch size={9} />
-                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 100 }}>{run.head_branch || 'main'}</span>
+                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 80 }}>{run.head_branch || 'main'}</span>
+                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 80, color: 'rgba(255,255,255,0.2)' }}>{run.workflow_name}</span>
                                     {dur && <><span>·</span><span>{dur}</span></>}
                                 </div>
                             </div>
@@ -174,22 +178,23 @@ const ActivityFeed = ({ runs, loading }) => {
 
 // ── Security Posture card ─────────────────────────────────────────────────────
 const SecurityCard = ({ secSummary, loading }) => {
-    const total    = secSummary?.total    || 0;
     const critical = secSummary?.critical || 0;
     const high     = secSummary?.high     || 0;
     const medium   = secSummary?.medium   || 0;
     const low      = secSummary?.low      || 0;
+    // Compute total from individual counts — don't trust API total (may be stale)
+    const total    = critical + high + medium + low;
 
     const posture      = critical > 0 ? 'Critical' : high > 0 ? 'At Risk' : total > 0 ? 'Monitor' : 'Secure';
     const postureColor = critical > 0 ? '#F87171' : high > 0 ? '#FB923C' : total > 0 ? '#FBBF24' : '#34D399';
 
     const bars = [
-        { label: 'Critical', count: critical, color: '#F87171' },
-        { label: 'High',     count: high,     color: '#FB923C' },
-        { label: 'Medium',   count: medium,   color: '#FBBF24' },
-        { label: 'Low',      count: low,      color: '#60A5FA' },
+        { label: 'Critical', desc: 'Needs immediate fix', count: critical, color: '#F87171' },
+        { label: 'High',     desc: 'Fix within 24h',      count: high,     color: '#FB923C' },
+        { label: 'Medium',   desc: 'Fix this sprint',     count: medium,   color: '#FBBF24' },
+        { label: 'Low',      desc: 'Low priority',        count: low,      color: '#60A5FA' },
     ];
-    const maxCount = Math.max(...bars.map(b => b.count), 1);
+    const maxCount = Math.max(critical, high, medium, low, 1);
 
     return (
         <div style={{ background: 'rgba(28,28,30,0.4)', backdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 24, padding: 24, height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -208,19 +213,21 @@ const SecurityCard = ({ secSummary, loading }) => {
                     {[1,2,3,4].map(i => <div key={i} className="skeleton" style={{ height: 32, borderRadius: 8 }} />)}
                 </div>
             ) : (
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
                     {bars.map(b => (
                         <div key={b.label} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                            <span style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.4)', width: 52, flexShrink: 0 }}>{b.label}</span>
-                            <div style={{ flex: 1, height: 6, background: 'rgba(255,255,255,0.06)', borderRadius: 3 }}>
-                                <div style={{ height: '100%', borderRadius: 3, width: `${(b.count/maxCount)*100}%`, background: b.color, transition: 'width 0.8s ease', minWidth: b.count > 0 ? 6 : 0 }} />
+                            <div style={{ width: 52, flexShrink: 0 }}>
+                                <div style={{ fontSize: 11, fontWeight: 700, color: b.count > 0 ? b.color : 'rgba(255,255,255,0.3)' }}>{b.label}</div>
                             </div>
-                            <span style={{ fontSize: 12, fontWeight: 700, color: b.count > 0 ? b.color : 'rgba(255,255,255,0.2)', width: 24, textAlign: 'right', flexShrink: 0 }}>{b.count}</span>
+                            <div style={{ flex: 1, height: 6, background: 'rgba(255,255,255,0.06)', borderRadius: 3 }}>
+                                <div style={{ height: '100%', borderRadius: 3, width: `${(b.count / maxCount) * 100}%`, background: b.color, transition: 'width 0.8s ease', minWidth: b.count > 0 ? 6 : 0 }} />
+                            </div>
+                            <span style={{ fontSize: 13, fontWeight: 800, color: b.count > 0 ? b.color : 'rgba(255,255,255,0.2)', width: 28, textAlign: 'right', flexShrink: 0 }}>{b.count}</span>
                         </div>
                     ))}
                     <div style={{ marginTop: 8, padding: '10px 14px', background: 'rgba(255,255,255,0.03)', borderRadius: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>Total open</span>
-                        <span style={{ fontSize: 16, fontWeight: 800, color: total > 0 ? postureColor : '#34D399' }}>{total}</span>
+                        <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>Total open issues</span>
+                        <span style={{ fontSize: 18, fontWeight: 800, color: total > 0 ? postureColor : '#34D399' }}>{total}</span>
                     </div>
                 </div>
             )}
@@ -286,17 +293,19 @@ const SitesCard = ({ sites, loading }) => (
 // ── Main Dashboard ────────────────────────────────────────────────────────────
 const Dashboard = () => {
     const { selectedRepo } = useAppContext();
+    const { secSummary: ctxSecSummary, monitorSites: ctxSites, monitorSitesLoaded } = useAppContext();
     const [range, setRange]           = useState('7d');
     const [metrics, setMetrics]       = useState(null);
     const [prevMetrics, setPrevMetrics] = useState(null);
     const [loading, setLoading]       = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [lastSync, setLastSync]     = useState(new Date());
-    const [secSummary, setSecSummary] = useState(null);
+    // Use shared context data — no redundant fetches
+    const secSummary = ctxSecSummary;
+    const sites      = ctxSites;
+    const sitesLoading = !monitorSitesLoaded;
     const [chartData, setChartData]   = useState({ dep: null, sr: null });
     const [runs, setRuns]             = useState([]);
-    const [sites, setSites]           = useState([]);
-    const [sitesLoading, setSitesLoading] = useState(true);
     const mounted = useRef(true);
 
     useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
@@ -333,9 +342,6 @@ const Dashboard = () => {
             if (!mounted.current) return;
             cacheSet('dashboard', selectedRepo, { curr, full }, range);
             applyData(curr, full, days);
-            api.getSecuritySummary(selectedRepo)
-                .then(d => { if (mounted.current) { setSecSummary(d); cacheSet('dashboard_sec', selectedRepo, d); } })
-                .catch(() => {});
         } catch {
             if (mounted.current) { setMetrics(null); setPrevMetrics(null); setChartData({ dep: null, sr: null }); setRuns([]); }
         } finally {
@@ -343,24 +349,13 @@ const Dashboard = () => {
         }
     }, [selectedRepo, range, applyData]);
 
-    // Load sites once
-    useEffect(() => {
-        setSitesLoading(true);
-        api.getMonitorSites()
-            .then(d => { if (mounted.current) setSites(Array.isArray(d) ? d : []); })
-            .catch(() => { if (mounted.current) setSites([]); })
-            .finally(() => { if (mounted.current) setSitesLoading(false); });
-    }, []);
-
     useEffect(() => {
         if (!selectedRepo) { setLoading(false); return; }
         const days = range === '24h' ? 1 : range === '7d' ? 7 : 30;
         const cached = cacheGet('dashboard', selectedRepo, range);
-        const cachedSec = cacheGet('dashboard_sec', selectedRepo);
         if (cached) {
             applyData(cached.data.curr, cached.data.full, days);
             setLoading(false);
-            if (cachedSec) setSecSummary(cachedSec.data);
             if (cached.stale) fetchData(false);
             return;
         }
@@ -423,7 +418,7 @@ const Dashboard = () => {
             </div>
 
             {/* ── Charts + Activity Feed ── */}
-            <div className="chart-activity-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 340px', gap: 20, marginBottom: 24 }}>
+            <div className="chart-activity-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 340px', gap: 20, marginBottom: 24, height: 340 }}>
                 <ChartCard title="Deployment Volume" icon={Rocket} badge={{ label: range, className: 'badge-muted' }}>
                     {loading ? <div className="h-full skeleton rounded-xl" /> : chartData.dep ? <Bar key={`dep-${range}`} data={chartData.dep} options={chartOpts()} /> : <div className="flex h-full w-full items-center justify-center text-slate-500 text-sm">No data</div>}
                 </ChartCard>

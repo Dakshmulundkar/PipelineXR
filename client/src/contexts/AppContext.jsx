@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { io } from 'socket.io-client';
 import { api } from '../services/api';
 
@@ -13,6 +13,15 @@ export const AppProvider = ({ children, isAuthenticated }) => {
     const [selectedRepo, setSelectedRepo] = useState('');
     const [isAdmin, setIsAdmin] = useState(false);
     const socketRef = useRef(null);
+
+    // ── Shared data — fetched once, consumed by any page ─────────────────────
+    // Security summary (vuln counts) — used by Dashboard + Security + Reports
+    const [secSummary, setSecSummary] = useState(null);
+    const [secSummaryRepo, setSecSummaryRepo] = useState(null);
+
+    // Monitor sites — used by Dashboard + Monitoring page
+    const [monitorSites, setMonitorSites] = useState([]);
+    const [monitorSitesLoaded, setMonitorSitesLoaded] = useState(false);
 
     // Global scan state — persists across page navigation
     const [scanState, setScanState] = useState({
@@ -73,7 +82,20 @@ export const AppProvider = ({ children, isAuthenticated }) => {
                 }
             }
         }).catch(() => setSelectedRepo(''));
+
+        // Fetch monitor sites once on login — shared by Dashboard + Monitoring
+        api.getMonitorSites()
+            .then(d => { setMonitorSites(Array.isArray(d) ? d : []); setMonitorSitesLoaded(true); })
+            .catch(() => { setMonitorSites([]); setMonitorSitesLoaded(true); });
     }, [isAuthenticated]);
+
+    // Refresh security summary when selected repo changes
+    useEffect(() => {
+        if (!selectedRepo || selectedRepo === secSummaryRepo) return;
+        api.getSecuritySummary(selectedRepo)
+            .then(d => { setSecSummary(d); setSecSummaryRepo(selectedRepo); })
+            .catch(() => {});
+    }, [selectedRepo, secSummaryRepo]);
 
     // Start a background scan — safe to call from any page
     const startScan = useCallback(async (repo) => {
@@ -130,6 +152,9 @@ export const AppProvider = ({ children, isAuthenticated }) => {
             isAdmin,
             socket: socketRef.current,
             scanState, startScan,
+            // Shared data — avoids redundant fetches across pages
+            secSummary, setSecSummary,
+            monitorSites, setMonitorSites, monitorSitesLoaded,
         }}>
             {children}
         </AppContext.Provider>

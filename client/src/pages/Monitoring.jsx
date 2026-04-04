@@ -124,9 +124,10 @@ function StatPill({ label, value, color = '#60A5FA' }) {
 }
 
 export default function Monitoring() {
-    const { isAdmin } = useAppContext();
+    const { isAdmin, monitorSites: ctxSites, setMonitorSites } = useAppContext();
 
-    const [sites, setSites] = useState([]);
+    // Seed from context so first render has data immediately
+    const [sites, setSites] = useState(ctxSites || []);
     const [selected, setSelected] = useState(null);
     const [checks, setChecks] = useState([]);
     const [stats, setStats] = useState(null);
@@ -156,6 +157,7 @@ export default function Monitoring() {
         try {
             const data = await api.getMonitorSites();
             setSites(data || []);
+            setMonitorSites(data || []); // keep context in sync for Dashboard
             setLastRefresh(new Date());
             // Keep selected in sync with latest server state (is_up, last_checked, etc.)
             setSelected(prev => {
@@ -168,7 +170,7 @@ export default function Monitoring() {
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [setMonitorSites]);
 
     // Load IDS data (admin only)
     const loadIds = useCallback(async () => {

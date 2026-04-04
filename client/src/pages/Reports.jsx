@@ -101,17 +101,7 @@ const DoraSection = ({ repo, timeRange }) => {
 };
 
 // ── Security section ──────────────────────────────────────────────────────────
-const SecuritySection = ({ repo }) => {
-    const [data, setData] = useState(null);
-    const [loading, setLoading] = useState(true);
-
-    useEffect(() => {
-        setLoading(true);
-        api.getSecuritySummary(repo)
-            .then(setData)
-            .catch(() => setData(null))
-            .finally(() => setLoading(false));
-    }, [repo]);
+const SecuritySection = ({ data, loading }) => {
 
     if (loading) return <div style={{ color: 'rgba(255,255,255,0.2)', fontSize: 13 }}>Loading security data...</div>;
     if (!data || data.total === 0) return <div style={{ color: 'rgba(52,211,153,0.7)', fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}><CheckCircle2 size={14} /> No open vulnerabilities found.</div>;
@@ -161,10 +151,12 @@ const SecuritySection = ({ repo }) => {
 };
 
 // ── Build stability timeline (Jenkins-style) ──────────────────────────────────
+// ── Build stability — non-technical card view ─────────────────────────────────
+const _now = () => Date.now();
+
 const BuildStabilitySection = ({ repo }) => {
     const [runs, setRuns] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [tooltip, setTooltip] = useState(null); // { run, x, y }
 
     useEffect(() => {
         setLoading(true);
@@ -177,126 +169,93 @@ const BuildStabilitySection = ({ repo }) => {
     if (loading) return <div style={{ color: 'rgba(255,255,255,0.2)', fontSize: 13 }}>Loading build history...</div>;
     if (!runs || runs.length === 0) return <div style={{ color: 'rgba(255,255,255,0.2)', fontSize: 13 }}>No build history found.</div>;
 
-    // Sort oldest → newest so timeline reads left to right
-    const sorted = [...runs].sort((a, b) => new Date(a.run_started_at || a.created_at) - new Date(b.run_started_at || b.created_at));
-
-    // Group by workflow name
+    // Per-workflow stats
     const byWorkflow = {};
-    for (const r of sorted) {
+    for (const r of runs) {
         const name = r.workflow_name || 'Unknown';
-        if (!byWorkflow[name]) byWorkflow[name] = [];
-        byWorkflow[name].push(r);
+        if (!byWorkflow[name]) byWorkflow[name] = { total: 0, success: 0, failed: 0, lastRun: null, lastConclusion: null };
+        byWorkflow[name].total++;
+        if (r.conclusion === 'success') byWorkflow[name].success++;
+        if (r.conclusion === 'failure') byWorkflow[name].failed++;
+        const ts = r.run_started_at || r.created_at;
+        if (!byWorkflow[name].lastRun || ts > byWorkflow[name].lastRun) {
+            byWorkflow[name].lastRun = ts;
+            byWorkflow[name].lastConclusion = r.conclusion;
+        }
     }
 
-    // Consecutive failure streak across all runs (most recent first)
+    // Consecutive failure streak (most recent first)
     const recent = [...runs].sort((a, b) => new Date(b.run_started_at || b.created_at) - new Date(a.run_started_at || a.created_at));
     let streak = 0;
-    for (const r of recent) {
-        if (r.conclusion === 'failure') streak++;
-        else break;
-    }
+    for (const r of recent) { if (r.conclusion === 'failure') streak++; else break; }
 
-    const dotColor = (conclusion) => {
-        if (conclusion === 'success')   return '#34D399';
-        if (conclusion === 'failure')   return '#F87171';
-        if (conclusion === 'cancelled') return '#9CA3AF';
-        return '#FBBF24'; // in_progress / unknown
+    const timeAgo = (ts) => {
+        if (!ts) return '—';
+        const diff = (_now() - new Date(ts)) / 1000;
+        if (diff < 3600)  return `${Math.round(diff / 60)}m ago`;
+        if (diff < 86400) return `${Math.round(diff / 3600)}h ago`;
+        return `${Math.round(diff / 86400)}d ago`;
     };
 
-    const dotTitle = (r) => {
-        const date = new Date(r.run_started_at || r.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-        const dur = r.duration_seconds ? `${Math.round(r.duration_seconds / 60)}m` : '—';
-        return `#${r.run_number || r.run_id?.toString().slice(-4) || '?'} · ${r.conclusion || 'unknown'} · ${date} · ${dur}`;
-    };
+    const healthLabel = (rate) => rate >= 90 ? 'Healthy' : rate >= 70 ? 'Needs attention' : 'Failing';
+    const healthColor = (rate) => rate >= 90 ? '#34D399' : rate >= 70 ? '#FBBF24' : '#F87171';
+    const healthBg    = (rate) => rate >= 90 ? 'rgba(52,211,153,0.08)' : rate >= 70 ? 'rgba(251,191,36,0.08)' : 'rgba(248,113,113,0.08)';
 
     return (
-        <div style={{ position: 'relative' }}>
-            {/* Streak warning */}
+        <div>
+            {/* Streak alert */}
             {streak >= 2 && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, padding: '8px 14px', background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.2)', borderRadius: 10 }}>
-                    <AlertTriangle size={13} color="#F87171" />
-                    <span style={{ fontSize: 12, color: '#F87171', fontWeight: 600 }}>
-                        {streak} consecutive failures — build is currently broken
-                    </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, padding: '12px 16px', background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.2)', borderRadius: 12 }}>
+                    <AlertTriangle size={14} color="#F87171" />
+                    <div>
+                        <div style={{ fontSize: 13, color: '#F87171', fontWeight: 700 }}>Build is broken</div>
+                        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 2 }}>
+                            The last {streak} runs failed in a row. Someone needs to investigate.
+                        </div>
+                    </div>
                 </div>
             )}
 
-            {/* Per-workflow dot strips */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                {Object.entries(byWorkflow).map(([name, wRuns]) => {
-                    const wSuccess = wRuns.filter(r => r.conclusion === 'success').length;
-                    const wRate = Math.round((wSuccess / wRuns.length) * 100);
+            {/* Workflow cards */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {Object.entries(byWorkflow).map(([name, w]) => {
+                    const rate = Math.round((w.success / w.total) * 100);
+                    const isUp = w.lastConclusion === 'success';
+                    const statusColor = isUp ? '#34D399' : '#F87171';
 
                     return (
-                        <div key={name}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
-                                <span style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.55)', width: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 0 }}>{name}</span>
-                                <div style={{ display: 'flex', gap: 3, flex: 1, flexWrap: 'wrap' }}>
-                                    {wRuns.map((r, i) => (
-                                        <div
-                                            key={i}
-                                            title={dotTitle(r)}
-                                            onMouseEnter={e => setTooltip({ run: r, x: e.clientX, y: e.clientY })}
-                                            onMouseLeave={() => setTooltip(null)}
-                                            style={{
-                                                width: 10, height: 10,
-                                                borderRadius: 2,
-                                                background: dotColor(r.conclusion),
-                                                opacity: r.conclusion === 'cancelled' ? 0.4 : 1,
-                                                cursor: 'default',
-                                                flexShrink: 0,
-                                                transition: 'transform 0.1s',
-                                            }}
-                                            onMouseOver={e => e.currentTarget.style.transform = 'scale(1.4)'}
-                                            onMouseOut={e => e.currentTarget.style.transform = 'scale(1)'}
-                                        />
-                                    ))}
+                        <div key={name} style={{ padding: '14px 18px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, display: 'flex', alignItems: 'center', gap: 16 }}>
+                            {/* Status dot */}
+                            <div style={{ width: 10, height: 10, borderRadius: '50%', background: statusColor, flexShrink: 0, boxShadow: isUp ? `0 0 8px ${statusColor}60` : 'none' }} />
+
+                            {/* Name + last run */}
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontSize: 13, fontWeight: 700, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</div>
+                                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>
+                                    Last ran {timeAgo(w.lastRun)} · {w.total} total runs
                                 </div>
-                                <span style={{ fontSize: 11, fontWeight: 700, color: wRate >= 90 ? '#34D399' : wRate >= 70 ? '#FBBF24' : '#F87171', flexShrink: 0, width: 36, textAlign: 'right' }}>{wRate}%</span>
+                            </div>
+
+                            {/* Pass/fail counts */}
+                            <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                                <div style={{ textAlign: 'center' }}>
+                                    <div style={{ fontSize: 14, fontWeight: 800, color: '#34D399' }}>{w.success}</div>
+                                    <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase' }}>passed</div>
+                                </div>
+                                <div style={{ textAlign: 'center' }}>
+                                    <div style={{ fontSize: 14, fontWeight: 800, color: w.failed > 0 ? '#F87171' : 'rgba(255,255,255,0.2)' }}>{w.failed}</div>
+                                    <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase' }}>failed</div>
+                                </div>
+                            </div>
+
+                            {/* Health badge */}
+                            <div style={{ padding: '4px 12px', borderRadius: 8, background: healthBg(rate), fontSize: 11, fontWeight: 700, color: healthColor(rate), flexShrink: 0, minWidth: 80, textAlign: 'center' }}>
+                                {healthLabel(rate)} · {rate}%
                             </div>
                         </div>
                     );
                 })}
             </div>
-
-            {/* Legend */}
-            <div style={{ display: 'flex', gap: 16, marginTop: 16, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-                {[['#34D399', 'Success'], ['#F87171', 'Failure'], ['#FBBF24', 'In Progress'], ['#9CA3AF', 'Cancelled']].map(([color, label]) => (
-                    <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                        <div style={{ width: 8, height: 8, borderRadius: 2, background: color }} />
-                        <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', fontWeight: 600 }}>{label}</span>
-                    </div>
-                ))}
-                <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.2)', marginLeft: 'auto' }}>oldest → newest · hover for details</span>
-            </div>
-
-            {/* Hover tooltip */}
-            {tooltip && (
-                <div style={{
-                    position: 'fixed', zIndex: 9999,
-                    left: tooltip.x + 12, top: tooltip.y - 10,
-                    background: 'rgba(18,18,22,0.97)', border: '1px solid rgba(255,255,255,0.12)',
-                    borderRadius: 10, padding: '8px 12px', pointerEvents: 'none',
-                    boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
-                }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: dotColor(tooltip.run.conclusion), marginBottom: 4 }}>
-                        #{tooltip.run.run_number || tooltip.run.run_id?.toString().slice(-4)} · {tooltip.run.conclusion || 'unknown'}
-                    </div>
-                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)' }}>
-                        {new Date(tooltip.run.run_started_at || tooltip.run.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                    </div>
-                    {tooltip.run.duration_seconds && (
-                        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 2 }}>
-                            Duration: {Math.round(tooltip.run.duration_seconds / 60)}m {tooltip.run.duration_seconds % 60}s
-                        </div>
-                    )}
-                    {tooltip.run.head_branch && (
-                        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 2 }}>
-                            Branch: {tooltip.run.head_branch}
-                        </div>
-                    )}
-                </div>
-            )}
         </div>
     );
 };
@@ -362,6 +321,7 @@ const PipelineSection = ({ repo, timeRange }) => {
 // ── Main Reports page ─────────────────────────────────────────────────────────
 const Reports = () => {
     const { selectedRepo } = useAppContext();
+    const { secSummary: ctxSecSummary } = useAppContext();
     const [timeRange, setTimeRange] = useState('7d');
     const [downloading, setDownloading] = useState(false);
     const [syncing, setSyncing] = useState(false);
@@ -446,7 +406,7 @@ const Reports = () => {
             {/* Security Posture */}
             <div style={{ background: 'rgba(28,28,30,0.4)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 24, padding: 28, marginBottom: 20 }}>
                 <SectionHeader icon={Shield} color="#F87171" title="Security Posture" sub="open vulnerabilities" />
-                <SecuritySection repo={selectedRepo} />
+                <SecuritySection data={ctxSecSummary} loading={ctxSecSummary === null} />
             </div>
 
             {/* Pipeline Reliability */}

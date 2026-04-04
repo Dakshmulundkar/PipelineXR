@@ -727,14 +727,13 @@ app.get('/api/reports/download', expensiveLimiter, async (req, res) => {
         const userId = getUserId(req); if (!userId) return res.status(401).json({ error: 'Authentication required' });
         const { repository } = req.query;
 
-        // Gather all data in parallel
         const [doraData, secData, runsRaw] = await Promise.allSettled([
             metricsService.getDoraMetrics(repository || null, 30, userId),
             securityService.getSummary(repository || null, userId),
             new Promise((resolve, reject) => {
                 const sql = repository
-                    ? `SELECT run_id, run_number, workflow_name, conclusion, run_started_at, duration_seconds, head_branch FROM workflow_runs WHERE user_id=? AND repository=? ORDER BY run_started_at DESC LIMIT 50`
-                    : `SELECT run_id, run_number, workflow_name, conclusion, run_started_at, duration_seconds, head_branch FROM workflow_runs WHERE user_id=? ORDER BY run_started_at DESC LIMIT 50`;
+                    ? `SELECT run_id, run_number, workflow_name, conclusion, run_started_at, duration_seconds, head_branch, head_commit_message FROM workflow_runs WHERE user_id=? AND repository=? ORDER BY run_started_at DESC LIMIT 50`
+                    : `SELECT run_id, run_number, workflow_name, conclusion, run_started_at, duration_seconds, head_branch, head_commit_message FROM workflow_runs WHERE user_id=? ORDER BY run_started_at DESC LIMIT 50`;
                 const params = repository ? [userId, repository] : [userId];
                 const db = require('../services/database');
                 db.all(sql, params, (err, rows) => err ? reject(err) : resolve(rows || []));
@@ -746,88 +745,129 @@ app.get('/api/reports/download', expensiveLimiter, async (req, res) => {
         const runs = runsRaw.status  === 'fulfilled' ? runsRaw.value  : [];
 
         const PDFDocument = require('pdfkit');
-        const doc = new PDFDocument({ margin: 40, size: 'A4' });
+        const doc = new PDFDocument({ margin: 0, size: 'A4', bufferPages: true });
 
         res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', `attachment; filename=pipelinexr-health-report-${Date.now()}.pdf`);
+        res.setHeader('Content-Disposition', `attachment; filename=pipelinexr-report-${new Date().toISOString().split('T')[0]}.pdf`);
         doc.pipe(res);
 
-        const W = 515; // usable width
+        const PW = 595, PH = 842, ML = 48, MR = 48, CW = PW - ML - MR;
 
-        // ── Cover header ──────────────────────────────────────────────────────
-        doc.rect(40, 40, W, 70).fill('#0a0a0f');
-        doc.fillColor('#fff').fontSize(22).font('Helvetica-Bold')
-            .text('PipelineXR Health Report', 56, 52);
-        doc.fillColor('#888').fontSize(10).font('Helvetica')
-            .text(`${repository || 'All Repositories'}  ·  Generated ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}  ·  Last 30 days`, 56, 80);
-        doc.moveDown(3.5);
-
-        // ── Helper: section title ─────────────────────────────────────────────
-        const sectionTitle = (title) => {
-            doc.moveDown(0.5);
-            doc.rect(40, doc.y, W, 24).fill('#f5f5f5');
-            doc.fillColor('#111').fontSize(11).font('Helvetica-Bold')
-                .text(title, 48, doc.y - 18);
+        const C = { bg: '#0B0B0F', surface: '#141418', border: '#222228', text: '#FFFFFF', muted: '#888899', faint: '#444455', green: '#34D399', amber: '#FBBF24', red: '#F87171', blue: '#60A5FA', accent: '#3B82F6' };
+        const statusColor = (rate) => rate >= 90 ? C.green : rate >= 70 ? C.amber : C.red;
+        const statusLabel = (rate) => rate >= 90 ? 'Healthy' : rate >= 70 ? 'Needs Attention' : 'Failing';
+        const rule = (y, color = C.border) => { doc.moveTo(ML, y).lineTo(PW - MR, y).strokeColor(color).lineWidth(0.5).stroke(); };
+        const sectionHead = (title, sub) => {
+            const y = doc.y + 20;
+            doc.rect(ML, y, 3, 14).fill(C.accent);
+            doc.fillColor(C.text).fontSize(11).font('Helvetica-Bold').text(title, ML + 10, y + 1, { continued: !!sub });
+            if (sub) doc.fillColor(C.muted).fontSize(9).font('Helvetica').text(`  ${sub}`);
             doc.moveDown(1.2);
         };
-
-        // ── Helper: stat boxes ────────────────────────────────────────────────
-        const statBoxes = (items) => {
-            const boxW = Math.floor(W / items.length) - 4;
-            const startX = 40, y = doc.y;
-            items.forEach((s, i) => {
-                const x = startX + i * (boxW + 4);
-                doc.rect(x, y, boxW, 56).fillAndStroke('#fafafa', '#e8e8e8');
-                doc.fillColor(s.color || '#111').fontSize(22).font('Helvetica-Bold')
-                    .text(String(s.val), x + 8, y + 8, { width: boxW - 16 });
-                doc.fillColor('#888').fontSize(8).font('Helvetica')
-                    .text(s.label.toUpperCase(), x + 8, y + 36, { width: boxW - 16 });
-            });
-            doc.moveDown(4.2);
+        const statPill = (x, y, value, label, color) => {
+            doc.rect(x, y, 110, 52).fill(C.surface);
+            doc.rect(x, y, 110, 52).strokeColor(C.border).lineWidth(0.5).stroke();
+            doc.fillColor(color || C.text).fontSize(20).font('Helvetica-Bold').text(String(value), x + 10, y + 10, { width: 90 });
+            doc.fillColor(C.muted).fontSize(7.5).font('Helvetica').text(label.toUpperCase(), x + 10, y + 36, { width: 90, characterSpacing: 0.5 });
         };
 
-        // ── DORA Metrics ──────────────────────────────────────────────────────
-        sectionTitle('DORA Metrics  (last 30 days)');
+        // ── Page 1 background ─────────────────────────────────────────────────
+        doc.rect(0, 0, PW, PH).fill(C.bg);
+        doc.rect(0, 0, PW, 4).fill(C.accent);
+
+        // Logo + title
+        doc.rect(ML, 60, 36, 36).fill(C.accent);
+        doc.fillColor(C.text).fontSize(13).font('Helvetica-Bold').text('PX', ML + 9, 72);
+        doc.fillColor(C.text).fontSize(26).font('Helvetica-Bold').text('Engineering Health Report', ML + 50, 62, { width: CW - 50 });
+        doc.fillColor(C.muted).fontSize(10).font('Helvetica').text(repository || 'All Repositories', ML + 50, 94, { width: CW - 50 });
+        rule(114, C.border);
+        doc.fillColor(C.faint).fontSize(8).font('Helvetica')
+            .text(`Generated  ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}`, ML, 124)
+            .text('Period: Last 30 days', ML, 138);
+
+        // ── Summary pills ─────────────────────────────────────────────────────
         const successRate = dora.successRate ?? dora.success_rate ?? null;
         const avgBuild    = dora.avgBuildDuration ?? dora.avg_build_duration ?? null;
         const totalDeploys = dora.totalDeployments ?? dora.total_deployments ?? 0;
         const grade = dora.performanceGrade || dora.performance_grade || '—';
-        const gradeColor = { Elite: '#16a34a', High: '#2563eb', Medium: '#d97706', Low: '#dc2626' }[grade] || '#111';
+        const critical = sec.critical || 0, high = sec.high || 0, medium = sec.medium || 0, low = sec.low || 0;
+        const secTotal = critical + high + medium + low;
+        const total = runs.length, succRuns = runs.filter(r => r.conclusion === 'success').length;
+        const failRuns = runs.filter(r => r.conclusion === 'failure').length;
+        const pipeRate = total > 0 ? Math.round((succRuns / total) * 100) : 0;
+        const gradeColors = { Elite: C.green, High: C.blue, Medium: C.amber, Low: C.red };
 
-        statBoxes([
-            { label: 'Deployments',  val: totalDeploys },
-            { label: 'Success Rate', val: successRate != null ? `${Math.round(successRate)}%` : '—', color: successRate >= 90 ? '#16a34a' : successRate >= 70 ? '#d97706' : '#dc2626' },
-            { label: 'Avg Build',    val: avgBuild != null ? `${Math.round(avgBuild)}m` : '—' },
-            { label: 'DORA Grade',   val: grade, color: gradeColor },
-        ]);
+        const summaryY = 162;
+        [
+            { val: totalDeploys, label: 'Deployments', color: C.blue },
+            { val: successRate != null ? `${Math.round(successRate)}%` : '—', label: 'Pipeline Health', color: statusColor(successRate ?? 0) },
+            { val: avgBuild != null ? `${Math.round(avgBuild)}m` : '—', label: 'Avg Build Time', color: C.text },
+            { val: grade, label: 'DORA Grade', color: gradeColors[grade] || C.text },
+            { val: secTotal, label: 'Open Vulns', color: secTotal > 0 ? C.red : C.green },
+        ].forEach((p, i) => statPill(ML + i * 116, summaryY, p.val, p.label, p.color));
 
-        // ── Security Posture ──────────────────────────────────────────────────
-        sectionTitle('Security Posture');
-        const posture = (sec.critical || 0) > 0 ? 'CRITICAL' : (sec.high || 0) > 0 ? 'AT-RISK' : 'SECURE';
-        const postureColor = posture === 'CRITICAL' ? '#dc2626' : posture === 'AT-RISK' ? '#d97706' : '#16a34a';
+        doc.y = summaryY + 72;
+        rule(doc.y);
 
-        statBoxes([
-            { label: 'Posture',  val: posture, color: postureColor },
-            { label: 'Critical', val: sec.critical || 0, color: (sec.critical || 0) > 0 ? '#dc2626' : '#111' },
-            { label: 'High',     val: sec.high     || 0, color: (sec.high     || 0) > 0 ? '#ea580c' : '#111' },
-            { label: 'Medium',   val: sec.medium   || 0 },
-            { label: 'Low',      val: sec.low      || 0 },
-        ]);
+        // ── DORA ──────────────────────────────────────────────────────────────
+        sectionHead('DORA Performance Metrics', 'Industry standard DevOps benchmarks');
+        [
+            ['Deployment Frequency', `${totalDeploys} deployments in 30 days`, totalDeploys > 0 ? C.green : C.muted],
+            ['Pipeline Success Rate', successRate != null ? `${Math.round(successRate)}% of runs succeeded` : 'No data', statusColor(successRate ?? 0)],
+            ['Average Build Duration', avgBuild != null ? `${Math.round(avgBuild)} minutes per build` : 'No data', avgBuild < 10 ? C.green : avgBuild < 20 ? C.amber : C.red],
+            ['Performance Grade', grade, gradeColors[grade] || C.muted],
+        ].forEach(([label, value, color], i) => {
+            const y = doc.y;
+            if (i % 2 === 0) doc.rect(ML, y - 2, CW, 18).fill('#0f0f14');
+            doc.fillColor(C.muted).fontSize(8.5).font('Helvetica').text(label, ML + 8, y + 2, { width: 200 });
+            doc.fillColor(color).fontSize(8.5).font('Helvetica-Bold').text(value, ML + 220, y + 2, { width: CW - 220 });
+            doc.moveDown(0.85);
+        });
+        doc.moveDown(0.5); rule(doc.y);
 
-        // ── Pipeline Reliability ──────────────────────────────────────────────
-        sectionTitle('Pipeline Reliability  (last 50 runs)');
-        const total   = runs.length;
-        const success = runs.filter(r => r.conclusion === 'success').length;
-        const failed  = runs.filter(r => r.conclusion === 'failure').length;
-        const rate    = total > 0 ? Math.round((success / total) * 100) : 0;
+        // ── Security ──────────────────────────────────────────────────────────
+        sectionHead('Security Posture', 'Open vulnerabilities by severity');
+        const posture = critical > 0 ? 'CRITICAL' : high > 0 ? 'AT RISK' : secTotal > 0 ? 'MONITOR' : 'SECURE';
+        const postureColor = critical > 0 ? C.red : high > 0 ? C.amber : secTotal > 0 ? C.amber : C.green;
+        const badgeY = doc.y;
+        doc.rect(ML, badgeY, 80, 20).fill(postureColor + '22');
+        doc.fillColor(postureColor).fontSize(9).font('Helvetica-Bold').text(posture, ML + 6, badgeY + 5, { width: 68, align: 'center' });
+        doc.moveDown(1.8);
+        const maxSev = Math.max(critical, high, medium, low, 1);
+        [
+            { label: 'Critical — Needs immediate fix', count: critical, color: C.red },
+            { label: 'High — Fix within 24 hours',     count: high,     color: C.amber },
+            { label: 'Medium — Fix this sprint',       count: medium,   color: '#FBBF24' },
+            { label: 'Low — Low priority',             count: low,      color: C.blue },
+        ].forEach(({ label, count, color }) => {
+            const y = doc.y;
+            const barW = Math.round((count / maxSev) * (CW - 180));
+            doc.fillColor(C.muted).fontSize(8).font('Helvetica').text(label, ML, y + 2, { width: 170 });
+            doc.rect(ML + 175, y + 5, CW - 180, 6).fill(C.surface);
+            if (barW > 0) doc.rect(ML + 175, y + 5, barW, 6).fill(color);
+            doc.fillColor(count > 0 ? color : C.faint).fontSize(9).font('Helvetica-Bold').text(String(count), ML + 175 + (CW - 180) + 8, y + 1, { width: 30 });
+            doc.moveDown(1);
+        });
+        doc.fillColor(C.faint).fontSize(8).font('Helvetica').text(`Total open: ${secTotal}`, ML, doc.y + 4);
+        doc.moveDown(1.5); rule(doc.y);
 
-        statBoxes([
-            { label: 'Total Runs',   val: total },
-            { label: 'Success Rate', val: `${rate}%`, color: rate >= 90 ? '#16a34a' : rate >= 70 ? '#d97706' : '#dc2626' },
-            { label: 'Failures',     val: failed, color: failed > 0 ? '#dc2626' : '#111' },
-        ]);
+        // ── Pipeline reliability ──────────────────────────────────────────────
+        sectionHead('Pipeline Reliability', `Last ${total} runs`);
+        const psY = doc.y;
+        [
+            { val: total,    label: 'Total Runs',   color: C.text },
+            { val: succRuns, label: 'Passed',        color: C.green },
+            { val: failRuns, label: 'Failed',        color: failRuns > 0 ? C.red : C.faint },
+            { val: `${pipeRate}%`, label: 'Success Rate', color: statusColor(pipeRate) },
+        ].forEach((s, i) => {
+            const x = ML + i * 124;
+            doc.rect(x, psY, 118, 44).fill(C.surface);
+            doc.rect(x, psY, 118, 44).strokeColor(C.border).lineWidth(0.5).stroke();
+            doc.fillColor(s.color).fontSize(18).font('Helvetica-Bold').text(String(s.val), x + 8, psY + 8, { width: 102 });
+            doc.fillColor(C.muted).fontSize(7).font('Helvetica').text(s.label.toUpperCase(), x + 8, psY + 30, { width: 102, characterSpacing: 0.4 });
+        });
+        doc.y = psY + 56;
 
-        // Per-workflow breakdown table
         const byWorkflow = {};
         for (const r of runs) {
             const name = r.workflow_name || 'Unknown';
@@ -835,85 +875,68 @@ app.get('/api/reports/download', expensiveLimiter, async (req, res) => {
             byWorkflow[name].total++;
             if (r.conclusion === 'success') byWorkflow[name].success++;
         }
-        const workflows = Object.entries(byWorkflow)
-            .map(([name, d]) => ({ name, total: d.total, rate: Math.round((d.success / d.total) * 100) }))
-            .sort((a, b) => a.rate - b.rate);
+        const workflows = Object.entries(byWorkflow).map(([name, d]) => ({ name, total: d.total, rate: Math.round((d.success / d.total) * 100) })).sort((a, b) => a.rate - b.rate);
 
         if (workflows.length > 0) {
-            // Table header
-            const cols = [280, 80, 80, 75];
-            const headers = ['Workflow', 'Runs', 'Success Rate', 'Status'];
-            let tx = 40, ty = doc.y;
-            doc.rect(tx, ty, W, 18).fill('#f0f0f0');
-            headers.forEach((h, i) => {
-                doc.fillColor('#555').fontSize(8).font('Helvetica-Bold')
-                    .text(h, tx + 4, ty + 4, { width: cols[i] });
-                tx += cols[i];
+            doc.moveDown(0.8);
+            const wCols = [240, 60, 80, 120];
+            let tx = ML, ty = doc.y;
+            doc.rect(ML, ty, CW, 16).fill(C.surface);
+            ['Workflow', 'Runs', 'Pass Rate', 'Health'].forEach((h, i) => {
+                doc.fillColor(C.faint).fontSize(7.5).font('Helvetica-Bold').text(h, tx + 4, ty + 4, { width: wCols[i], characterSpacing: 0.3 });
+                tx += wCols[i];
             });
             doc.moveDown(1);
-
             workflows.forEach((w, idx) => {
-                if (doc.y > 750) { doc.addPage(); }
-                tx = 40; ty = doc.y;
-                if (idx % 2 === 0) doc.rect(tx, ty - 2, W, 16).fill('#fafafa');
-                const wRate = w.rate;
-                const statusLabel = wRate >= 90 ? 'Healthy' : wRate >= 70 ? 'Unstable' : 'Failing';
-                const statusColor = wRate >= 90 ? '#16a34a' : wRate >= 70 ? '#d97706' : '#dc2626';
-                const row = [w.name, String(w.total), `${wRate}%`, statusLabel];
-                const colors = ['#111', '#111', statusColor, statusColor];
-                row.forEach((cell, i) => {
-                    doc.fillColor(colors[i]).fontSize(8).font('Helvetica')
-                        .text(cell, tx + 4, ty, { width: cols[i] });
-                    tx += cols[i];
+                if (doc.y > 780) { doc.addPage(); doc.rect(0, 0, PW, PH).fill(C.bg); doc.rect(0, 0, PW, 4).fill(C.accent); doc.y = 40; }
+                tx = ML; const ty2 = doc.y;
+                if (idx % 2 === 0) doc.rect(ML, ty2 - 1, CW, 15).fill('#0f0f14');
+                const wColor = statusColor(w.rate);
+                [w.name, String(w.total), `${w.rate}%`, statusLabel(w.rate)].forEach((cell, i) => {
+                    doc.fillColor(i < 2 ? (i === 0 ? C.text : C.muted) : wColor).fontSize(8).font(i === 0 ? 'Helvetica' : 'Helvetica-Bold').text(cell, tx + 4, ty2, { width: wCols[i] });
+                    tx += wCols[i];
                 });
                 doc.moveDown(0.8);
             });
         }
 
-        // ── Build History (last 20) ───────────────────────────────────────────
-        if (doc.y > 650) doc.addPage();
-        sectionTitle('Recent Build History  (last 20 runs)');
-        const recent = [...runs].slice(0, 20);
-        if (recent.length > 0) {
-            const cols2 = [60, 160, 100, 80, 115];
-            const headers2 = ['Build #', 'Workflow', 'Branch', 'Duration', 'Date'];
-            let tx = 40, ty = doc.y;
-            doc.rect(tx, ty, W, 18).fill('#f0f0f0');
-            headers2.forEach((h, i) => {
-                doc.fillColor('#555').fontSize(8).font('Helvetica-Bold')
-                    .text(h, tx + 4, ty + 4, { width: cols2[i] });
-                tx += cols2[i];
-            });
-            doc.moveDown(1);
-
-            recent.forEach((r, idx) => {
-                if (doc.y > 750) { doc.addPage(); }
-                tx = 40; ty = doc.y;
-                if (idx % 2 === 0) doc.rect(tx, ty - 2, W, 16).fill('#fafafa');
-                const dur = r.duration_seconds ? `${Math.round(r.duration_seconds / 60)}m ${r.duration_seconds % 60}s` : '—';
-                const date = r.run_started_at ? new Date(r.run_started_at).toLocaleDateString() : '—';
-                const conclusionColor = r.conclusion === 'success' ? '#16a34a' : r.conclusion === 'failure' ? '#dc2626' : '#888';
-                const row2 = [
-                    `#${r.run_number || String(r.run_id).slice(-6)}`,
-                    r.workflow_name || '—',
-                    r.head_branch || '—',
-                    dur,
-                    date,
-                ];
-                row2.forEach((cell, i) => {
-                    const color = i === 0 ? conclusionColor : '#111';
-                    doc.fillColor(color).fontSize(8).font('Helvetica')
-                        .text(cell, tx + 4, ty, { width: cols2[i] });
-                    tx += cols2[i];
-                });
-                doc.moveDown(0.8);
-            });
-        }
-
-        // ── Footer ────────────────────────────────────────────────────────────
+        // ── Recent builds ─────────────────────────────────────────────────────
+        if (doc.y > 680) { doc.addPage(); doc.rect(0, 0, PW, PH).fill(C.bg); doc.rect(0, 0, PW, 4).fill(C.accent); doc.y = 40; }
+        doc.moveDown(0.5); rule(doc.y);
+        sectionHead('Recent Builds', 'Last 15 runs');
+        const bCols = [50, 180, 90, 70, 80, 35];
+        let tx3 = ML, ty3 = doc.y;
+        doc.rect(ML, ty3, CW, 16).fill(C.surface);
+        ['Build', 'Commit / Workflow', 'Branch', 'Duration', 'Date'].forEach((h, i) => {
+            doc.fillColor(C.faint).fontSize(7.5).font('Helvetica-Bold').text(h, tx3 + 4, ty3 + 4, { width: bCols[i], characterSpacing: 0.3 });
+            tx3 += bCols[i];
+        });
         doc.moveDown(1);
-        doc.fillColor('#bbb').fontSize(8).font('Helvetica')
-            .text(`PipelineXR Health Report  ·  ${repository || 'All Repositories'}  ·  ${new Date().toISOString().split('T')[0]}`, 40, doc.y, { align: 'center', width: W });
+        runs.slice(0, 15).forEach((r, idx) => {
+            if (doc.y > 780) { doc.addPage(); doc.rect(0, 0, PW, PH).fill(C.bg); doc.rect(0, 0, PW, 4).fill(C.accent); doc.y = 40; }
+            tx3 = ML; const ty4 = doc.y;
+            if (idx % 2 === 0) doc.rect(ML, ty4 - 1, CW, 15).fill('#0f0f14');
+            const cColor = r.conclusion === 'success' ? C.green : r.conclusion === 'failure' ? C.red : C.muted;
+            const commitMsg = (r.head_commit_message || r.workflow_name || '—').split('\n')[0].slice(0, 32);
+            const dur = r.duration_seconds ? `${Math.round(r.duration_seconds / 60)}m ${r.duration_seconds % 60}s` : '—';
+            const date = r.run_started_at ? new Date(r.run_started_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—';
+            [`#${r.run_number || String(r.run_id || '').slice(-5)}`, commitMsg, r.head_branch || '—', dur, date].forEach((cell, i) => {
+                doc.fillColor(i === 0 ? cColor : i === 1 ? C.text : C.muted).fontSize(8).font(i === 0 ? 'Helvetica-Bold' : 'Helvetica').text(cell, tx3 + 4, ty4, { width: bCols[i] });
+                tx3 += bCols[i];
+            });
+            doc.moveDown(0.8);
+        });
+
+        // ── Footer on every page ──────────────────────────────────────────────
+        const pageCount = doc.bufferedPageRange().count;
+        for (let i = 0; i < pageCount; i++) {
+            doc.switchToPage(i);
+            doc.rect(0, PH - 28, PW, 28).fill(C.surface);
+            doc.fillColor(C.faint).fontSize(7.5).font('Helvetica')
+                .text(`PipelineXR  ·  ${repository || 'All Repositories'}  ·  ${new Date().toISOString().split('T')[0]}`, ML, PH - 18, { width: CW - 60 });
+            doc.fillColor(C.faint).fontSize(7.5).font('Helvetica')
+                .text(`${i + 1} / ${pageCount}`, PW - MR - 30, PH - 18, { width: 30, align: 'right' });
+        }
 
         doc.end();
     } catch (error) {
