@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import {
     FileText, Download, RefreshCw, Shield, TrendingUp,
     CheckCircle2, XCircle, AlertTriangle, Activity,
-    Clock, Zap, BarChart2
+    Clock, Zap, BarChart2, Sparkles, ChevronDown,
+    Beaker
 } from 'lucide-react';
 import { Bar, Line } from 'react-chartjs-2';
 import {
@@ -46,11 +47,23 @@ const DoraSection = ({ repo, timeRange }) => {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
+        let cancelled = false;
         setLoading(true);
-        api.getDoraMetrics(repo, timeRange)
-            .then(setData)
-            .catch(() => setData(null))
-            .finally(() => setLoading(false));
+
+        const days = timeRange === '30d' ? 30 : timeRange === '90d' ? 90 : 7;
+
+        // Sync first so workflow_runs table is populated, then fetch
+        api.syncDoraMetrics(repo, days)
+            .catch(() => {}) // non-fatal — still try to render cached data
+            .finally(() => {
+                if (cancelled) return;
+                api.getDoraMetrics(repo, timeRange)
+                    .then(d => { if (!cancelled) setData(d); })
+                    .catch(() => { if (!cancelled) setData(null); })
+                    .finally(() => { if (!cancelled) setLoading(false); });
+            });
+
+        return () => { cancelled = true; };
     }, [repo, timeRange]);
 
     const grade = data?.performanceGrade || data?.performance_grade || null;
@@ -318,6 +331,160 @@ const PipelineSection = ({ repo, timeRange }) => {
     );
 };
 
+// ── Test Results section ────────────────────────────────────────────────────────
+const TestResultsSection = ({ repo }) => {
+    const [data, setData] = useState(null);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        setLoading(true);
+        api.getTestReports(repo)
+            .then(d => setData(Array.isArray(d) ? d : d?.tests || []))
+            .catch(() => setData([]))
+            .finally(() => setLoading(false));
+    }, [repo]);
+
+    if (loading) return <div style={{ color: 'rgba(255,255,255,0.2)', fontSize: 13 }}>Loading test data...</div>;
+    if (!data || data.length === 0) return (
+        <div style={{ color: 'rgba(52,211,153,0.7)', fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <CheckCircle2 size={14} /> No test runs recorded.
+        </div>
+    );
+
+    // item shape from /api/reports/tests: { suite_name, total_tests, passed, failed, pass_rate, repository }
+    let total = 0, passed = 0, failed = 0;
+    const byWorkflow = {};
+
+    for (const item of data) {
+        const name = item.suite_name || item.workflow_name || 'Unknown';
+        const t = parseInt(item.total_tests) || 0;
+        const p = parseInt(item.passed) || 0;
+        const f = parseInt(item.failed) || 0;
+        if (t === 0) continue;
+
+        if (!byWorkflow[name]) byWorkflow[name] = { total: 0, passed: 0, failed: 0 };
+        byWorkflow[name].total += t;
+        byWorkflow[name].passed += p;
+        byWorkflow[name].failed += f;
+
+        total += t;
+        passed += p;
+        failed += f;
+    }
+
+    const passRate = total > 0 ? Math.round((passed / total) * 100) : 0;
+    const workflowEntries = Object.entries(byWorkflow).filter(([, w]) => w.total > 0);
+
+    return (
+        <div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+                <StatCard label="Total Tests" value={total} icon={Beaker} />
+                <StatCard label="Passed" value={passed} color="#34D399" icon={CheckCircle2} />
+                <StatCard label="Failed" value={failed} color={failed > 0 ? '#F87171' : '#fff'} icon={XCircle} />
+                <StatCard label="Pass Rate" value={`${passRate}%`} color={passRate >= 80 ? '#34D399' : passRate >= 60 ? '#FBBF24' : '#F87171'} icon={TrendingUp} />
+            </div>
+
+            {/* Per-workflow breakdown */}
+            {workflowEntries.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>By Workflow</div>
+                    {workflowEntries.map(([name, w]) => {
+                        const rate = w.total > 0 ? Math.round((w.passed / w.total) * 100) : 0;
+                        return (
+                            <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', width: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 0 }}>{name}</div>
+                                <div style={{ flex: 1, height: 6, background: 'rgba(255,255,255,0.06)', borderRadius: 3 }}>
+                                    <div style={{ height: '100%', borderRadius: 3, width: `${rate}%`, background: rate >= 80 ? '#34D399' : rate >= 60 ? '#FBBF24' : '#F87171', transition: 'width 0.6s ease' }} />
+                                </div>
+                                <span style={{ fontSize: 11, fontWeight: 700, color: rate >= 80 ? '#34D399' : rate >= 60 ? '#FBBF24' : '#F87171', width: 36, textAlign: 'right', flexShrink: 0 }}>{rate}%</span>
+                                <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.2)', width: 50, textAlign: 'right', flexShrink: 0 }}>
+                                    <span style={{ color: '#34D399' }}>{w.passed} </span>
+                                    <span style={{ color: '#F87171' }}>{w.failed > 0 ? `${w.failed}` : ''}</span>
+                                </span>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+        </div>
+    );
+};
+
+// ── AI Insights section ─────────────────────────────────────────────────────────
+const AiInsightsSection = ({ repo, timeRange }) => {
+    const [doraInsight, setDoraInsight] = useState(null);
+    const [secInsight, setSecInsight] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [expanded, setExpanded] = useState(false);
+
+    useEffect(() => {
+        setLoading(true);
+        Promise.allSettled([
+            api.getDoraInsights(repo, timeRange),
+            api.getSecurityReview(repo),
+        ]).then(([dora, sec]) => {
+            if (dora.status === 'fulfilled') {
+                const d = dora.value;
+                setDoraInsight(d?.data?.executive_summary || d?.data?.summary || (typeof d?.data === 'string' ? d.data : null));
+            }
+            if (sec.status === 'fulfilled') {
+                const s = sec.value;
+                setSecInsight(s?.data?.risk_summary || s?.data?.summary || (typeof s?.data === 'string' ? s.data : null));
+            }
+        }).catch(() => {}).finally(() => setLoading(false));
+    }, [repo, timeRange]);
+
+    if (loading) return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {[1, 2].map(i => (
+                <div key={i} style={{ height: 52, borderRadius: 10, background: 'rgba(255,255,255,0.04)', animation: 'pulse 1.5s ease-in-out infinite' }} />
+            ))}
+        </div>
+    );
+
+    const hasInsights = doraInsight || secInsight;
+    if (!hasInsights) return (
+        <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.25)', fontStyle: 'italic' }}>
+            No AI insights available for this period. Sync more data first.
+        </div>
+    );
+
+    return (
+        <div>
+            <button
+                onClick={() => setExpanded(e => !e)}
+                style={{ width: '100%', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, padding: '14px 18px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12, marginBottom: expanded ? 16 : 0 }}
+            >
+                <Sparkles size={15} style={{ color: '#A78BFA', flexShrink: 0 }} />
+                <div style={{ flex: 1, textAlign: 'left' }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>AI Health Insights</div>
+                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>
+                        {doraInsight && secInsight ? 'DORA + Security analysis' : doraInsight ? 'DORA metrics analysis' : 'Security posture analysis'}
+                    </div>
+                </div>
+                <ChevronDown size={14} style={{ color: 'rgba(255,255,255,0.3)', flexShrink: 0, transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+            </button>
+
+            {expanded && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {doraInsight && (
+                        <div style={{ padding: '14px 16px', background: 'rgba(52,211,153,0.05)', border: '1px solid rgba(52,211,153,0.12)', borderRadius: 12 }}>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: '#34D399', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>DORA Insights</div>
+                            <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)', lineHeight: 1.6 }}>{doraInsight}</div>
+                        </div>
+                    )}
+                    {secInsight && (
+                        <div style={{ padding: '14px 16px', background: 'rgba(168,85,247,0.05)', border: '1px solid rgba(168,85,247,0.12)', borderRadius: 12 }}>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: '#A78BFA', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Security Insights</div>
+                            <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)', lineHeight: 1.6 }}>{secInsight}</div>
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+};
+
 // ── Main Reports page ─────────────────────────────────────────────────────────
 const Reports = () => {
     const { selectedRepo } = useAppContext();
@@ -391,6 +558,12 @@ const Reports = () => {
                 </div>
             </div>
 
+            {/* AI Insights — top card, collapsible */}
+            <div style={{ background: 'rgba(28,28,30,0.4)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 24, padding: 28, marginBottom: 20 }}>
+                <SectionHeader icon={Sparkles} color="#A78BFA" title="AI Health Insights" sub="auto-generated summary" />
+                <AiInsightsSection repo={selectedRepo} timeRange={timeRange} />
+            </div>
+
             {/* DORA Metrics */}
             <div style={{ background: 'rgba(28,28,30,0.4)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 24, padding: 28, marginBottom: 20 }}>
                 <SectionHeader icon={TrendingUp} color="#34D399" title="DORA Metrics" sub={`last ${timeRange}`} />
@@ -401,6 +574,12 @@ const Reports = () => {
             <div style={{ background: 'rgba(28,28,30,0.4)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 24, padding: 28, marginBottom: 20 }}>
                 <SectionHeader icon={Activity} color="#FBBF24" title="Build Stability" sub="last 60 runs · Jenkins-style history" />
                 <BuildStabilitySection repo={selectedRepo} />
+            </div>
+
+            {/* Test Results */}
+            <div style={{ background: 'rgba(28,28,30,0.4)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 24, padding: 28, marginBottom: 20 }}>
+                <SectionHeader icon={Beaker} color="#60A5FA" title="Test Results" sub="from recorded workflow runs" />
+                <TestResultsSection repo={selectedRepo} />
             </div>
 
             {/* Security Posture */}

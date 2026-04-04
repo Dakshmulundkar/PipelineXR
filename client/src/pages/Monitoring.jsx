@@ -565,6 +565,15 @@ export default function Monitoring() {
                                 <StatPill label="MIN RESPONSE" value={stats?.min_response ? `${stats.min_response}ms` : '—'} color="#A78BFA" />
                                 <StatPill label="MAX RESPONSE" value={stats?.max_response ? `${stats.max_response}ms` : '—'} color="#FBBF24" />
                                 <StatPill label="CHECKS" value={stats?.total ?? '—'} color="rgba(255,255,255,0.5)" />
+                                <StatPill label="MTTR" value={
+                                    (() => {
+                                        const resolved = incidents.filter(i => i.resolved_at);
+                                        if (resolved.length === 0) return '—';
+                                        const avgMs = resolved.reduce((sum, i) => sum + (new Date(i.resolved_at) - new Date(i.started_at)), 0) / resolved.length;
+                                        const mins = avgMs / 60000;
+                                        return mins < 60 ? `${Math.round(mins)}m` : `${(mins / 60).toFixed(1)}h`;
+                                    })()
+                                } color="#FB923C" />
                             </div>
 
                             {/* Uptime bar */}
