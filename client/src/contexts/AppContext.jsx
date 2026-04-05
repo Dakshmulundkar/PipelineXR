@@ -19,6 +19,12 @@ export const AppProvider = ({ children, isAuthenticated }) => {
     const [secSummary, setSecSummary] = useState(null);
     const [secSummaryRepo, setSecSummaryRepo] = useState(null);
 
+    // Refs for socket listener to avoid stale closures — updated on every render
+    const selectedRepoRef = useRef(selectedRepo);
+    const secSummaryRepoRef = useRef(secSummaryRepo);
+    selectedRepoRef.current = selectedRepo;
+    secSummaryRepoRef.current = secSummaryRepo;
+
     // Monitor sites — used by Dashboard + Monitoring page
     const [monitorSites, setMonitorSites] = useState([]);
     const [monitorSitesLoaded, setMonitorSitesLoaded] = useState(false);
@@ -52,9 +58,26 @@ export const AppProvider = ({ children, isAuthenticated }) => {
         socket.on('connect', () => console.log('🔌 Socket connected:', socket.id));
         socket.on('disconnect', () => console.log('🔌 Socket disconnected'));
 
+        // Listen for scan completion events — refresh secSummary for the relevant repo
+        socket.on('security_update', (payload) => {
+            if (payload?.type === 'SCAN_COMPLETED' && payload?.repository) {
+                const repo = payload.repository;
+                // Only refresh if this matches the currently selected repo
+                if (selectedRepoRef.current === repo) {
+                    api.getSecuritySummary(repo).then(d => {
+                        if (d) {
+                            setSecSummary(d);
+                            setSecSummaryRepo(repo);
+                        }
+                    }).catch(() => {});
+                }
+            }
+        });
+
         socketRef.current = socket;
 
         return () => {
+            socket.off('security_update');
             socket.disconnect();
             socketRef.current = null;
         };

@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
     Rocket, AlertTriangle, Clock, Zap, ShieldAlert, TrendingUp,
     RefreshCw, CheckCircle2, XCircle, Globe, Activity,
     GitBranch, AlertCircle, ArrowRight
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { Bar, Line } from 'react-chartjs-2';
 import {
     Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement,
@@ -79,23 +80,25 @@ function calcTrend(current, previous) {
 
 // ── Needs Attention banner ────────────────────────────────────────────────────
 const NeedsAttention = ({ secSummary, runs, sites }) => {
+    const navigate = useNavigate();
     const items = [];
 
     const critVulns = secSummary?.critical || 0;
-    if (critVulns > 0) items.push({ color: '#F87171', icon: ShieldAlert, text: `${critVulns} critical vulnerabilit${critVulns===1?'y':'ies'} need immediate patching`, link: 'security' });
+    if (critVulns > 0) items.push({ color: '#F87171', icon: ShieldAlert, text: `${critVulns} critical vulnerabilit${critVulns===1?'y':'ies'} need immediate patching`, link: '/security' });
 
     const failedRuns = (runs||[]).filter(r => r.conclusion === 'failure').slice(0,3);
-    if (failedRuns.length > 0) items.push({ color: '#FB923C', icon: XCircle, text: `${failedRuns.length} pipeline${failedRuns.length===1?'':'s'} currently failing — ${failedRuns[0]?.workflow_name || 'workflow'}`, link: 'pipelines' });
+    if (failedRuns.length > 0) items.push({ color: '#FB923C', icon: XCircle, text: `${failedRuns.length} pipeline${failedRuns.length===1?'':'s'} currently failing — ${failedRuns[0]?.workflow_name || 'workflow'}`, link: '/pipelines' });
 
     const downSites = (sites||[]).filter(s => s.is_up === 0 || s.is_up === false);
-    if (downSites.length > 0) items.push({ color: '#F87171', icon: Globe, text: `${downSites.length} monitored site${downSites.length===1?'':'s'} down — ${downSites[0]?.url}`, link: 'monitoring' });
+    if (downSites.length > 0) items.push({ color: '#F87171', icon: Globe, text: `${downSites.length} monitored site${downSites.length===1?'':'s'} down — ${downSites[0]?.url}`, link: '/monitoring' });
 
     if (items.length === 0) return null;
 
     return (
         <div style={{ marginBottom: 24, display: 'flex', flexDirection: 'column', gap: 8 }}>
             {items.map((item, i) => (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 18px', background: `${item.color}0d`, border: `1px solid ${item.color}30`, borderRadius: 14 }}>
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 18px', background: `${item.color}0d`, border: `1px solid ${item.color}30`, borderRadius: 14, cursor: 'pointer' }}
+                    onClick={() => navigate(item.link)}>
                     <item.icon size={15} style={{ color: item.color, flexShrink: 0 }} />
                     <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)', flex: 1, fontWeight: 500 }}>{item.text}</span>
                     <ArrowRight size={13} style={{ color: 'rgba(255,255,255,0.3)', flexShrink: 0 }} />
@@ -117,7 +120,7 @@ const timeAgo = (ts) => {
     return `${Math.round(diff/86400)}d ago`;
 };
 
-const ActivityFeed = ({ runs, loading }) => {
+const ActivityFeed = ({ runs, loading, socketConnected }) => {
 
     const recent = (runs||[]).slice(0, 20);
 
@@ -127,8 +130,8 @@ const ActivityFeed = ({ runs, loading }) => {
                 <Activity size={15} style={{ color: 'rgba(255,255,255,0.4)' }} />
                 <span style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>Recent Activity</span>
                 <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5 }}>
-                    <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#34D399', animation: 'pulse 2s infinite' }} />
-                    <span style={{ fontSize: 10, color: '#34D399', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Live</span>
+                    <div style={{ width: 6, height: 6, borderRadius: '50%', background: socketConnected ? '#34D399' : '#FB923C', animation: socketConnected ? 'pulse 2s infinite' : 'none' }} />
+                    <span style={{ fontSize: 10, color: socketConnected ? '#34D399' : '#FB923C', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{socketConnected ? 'Live' : 'Reconnecting'}</span>
                 </div>
             </div>
             <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0', scrollbarWidth: 'none', msOverflowStyle: 'none' }}
@@ -236,63 +239,76 @@ const SecurityCard = ({ secSummary, loading }) => {
 };
 
 // ── Sites Status card ─────────────────────────────────────────────────────────
-const SitesCard = ({ sites, loading }) => (
-    <div style={{ background: 'rgba(28,28,30,0.4)', backdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 24, padding: 24, height: '100%', display: 'flex', flexDirection: 'column' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
-            <Globe size={15} style={{ color: 'rgba(255,255,255,0.4)' }} />
-            <span style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>Uptime Monitor</span>
-            {!loading && sites && (
-                <span style={{ marginLeft: 'auto', fontSize: 10, color: 'rgba(255,255,255,0.3)', fontWeight: 600 }}>{sites.length} site{sites.length !== 1 ? 's' : ''}</span>
-            )}
-        </div>
+const SitesCard = ({ sites, loading }) => {
+    // Tick every 60s so "checked Xm ago" stays fresh without per-frame re-renders
+    const [, tick] = useState(0);
+    useEffect(() => {
+        const id = setInterval(() => tick(t => t + 1), 60000);
+        return () => clearInterval(id);
+    }, []);
 
-        {loading ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {[1,2,3].map(i => <div key={i} className="skeleton" style={{ height: 44, borderRadius: 12 }} />)}
-            </div>
-        ) : !sites || sites.length === 0 ? (
-            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.2)', fontSize: 13, flexDirection: 'column', gap: 8 }}>
-                <Globe size={24} style={{ opacity: 0.2 }} />
-                <span>No sites monitored yet</span>
-            </div>
-        ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {sites.slice(0, 5).map((site, i) => {
-                    const isUp = site.is_up === 1 || site.is_up === true;
-                    const statusColor = isUp ? '#34D399' : '#F87171';
-                    const hostname = (() => { try { return new URL(site.url).hostname; } catch { return site.url; } })();
+    const siteItems = useMemo(() => sites?.slice(0, 5).map(site => {
+        const isUp = site.is_up === 1 || site.is_up === true;
+        const statusColor = isUp ? '#34D399' : '#F87171';
+        const hostname = (() => { try { return new URL(site.url).hostname; } catch { return site.url; } })();
+        const minsAgo = site.last_checked
+            ? Math.round((Date.now() - new Date(site.last_checked)) / 60000)
+            : null;
+        return { ...site, isUp, statusColor, hostname, minsAgo };
+    }) || [], [sites]);
 
-                    return (
-                        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', background: 'rgba(255,255,255,0.03)', borderRadius: 12, border: `1px solid ${isUp ? 'rgba(255,255,255,0.05)' : 'rgba(248,113,113,0.2)'}` }}>
-                            <div style={{ width: 8, height: 8, borderRadius: '50%', background: statusColor, flexShrink: 0, boxShadow: isUp ? `0 0 6px ${statusColor}60` : 'none' }} />
+    return (
+        <div style={{ background: 'rgba(28,28,30,0.4)', backdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 24, padding: 24, height: '100%', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
+                <Globe size={15} style={{ color: 'rgba(255,255,255,0.4)' }} />
+                <span style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>Uptime Monitor</span>
+                {!loading && sites && (
+                    <span style={{ marginLeft: 'auto', fontSize: 10, color: 'rgba(255,255,255,0.3)', fontWeight: 600 }}>{sites.length} site{sites.length !== 1 ? 's' : ''}</span>
+                )}
+            </div>
+
+            {loading ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {[1,2,3].map(i => <div key={i} className="skeleton" style={{ height: 44, borderRadius: 12 }} />)}
+                </div>
+            ) : !sites || sites.length === 0 ? (
+                <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.2)', fontSize: 13, flexDirection: 'column', gap: 8 }}>
+                    <Globe size={24} style={{ opacity: 0.2 }} />
+                    <span>No sites monitored yet</span>
+                </div>
+            ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {siteItems.map((site, i) => (
+                        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', background: 'rgba(255,255,255,0.03)', borderRadius: 12, border: `1px solid ${site.isUp ? 'rgba(255,255,255,0.05)' : 'rgba(248,113,113,0.2)'}` }}>
+                            <div style={{ width: 8, height: 8, borderRadius: '50%', background: site.statusColor, flexShrink: 0, boxShadow: site.isUp ? `0 0 6px ${site.statusColor}60` : 'none' }} />
                             <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{hostname}</div>
-                                {site.last_checked && (
+                                <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{site.hostname}</div>
+                                {site.minsAgo != null && (
                                     <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 1 }}>
-                                        checked {Math.round((NOW() - new Date(site.last_checked)) / 60000)}m ago
+                                        checked {site.minsAgo}m ago
                                     </div>
                                 )}
                             </div>
                             <div style={{ flexShrink: 0, textAlign: 'right' }}>
-                                <div style={{ fontSize: 10, fontWeight: 700, color: statusColor, textTransform: 'uppercase' }}>{isUp ? 'UP' : 'DOWN'}</div>
+                                <div style={{ fontSize: 10, fontWeight: 700, color: site.statusColor, textTransform: 'uppercase' }}>{site.isUp ? 'UP' : 'DOWN'}</div>
                                 {site.consecutive_failures > 0 && (
                                     <div style={{ fontSize: 9, color: '#F87171', marginTop: 1 }}>{site.consecutive_failures} fail{site.consecutive_failures !== 1 ? 's' : ''}</div>
                                 )}
                             </div>
                         </div>
-                    );
-                })}
-                {sites.length > 5 && (
-                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.25)', textAlign: 'center', paddingTop: 4 }}>+{sites.length - 5} more</div>
-                )}
-            </div>
-        )}
-    </div>
-);
+                    ))}
+                    {sites.length > 5 && (
+                        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.25)', textAlign: 'center', paddingTop: 4 }}>+{sites.length - 5} more</div>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+};
 
 // ── Main Dashboard ────────────────────────────────────────────────────────────
 const Dashboard = () => {
-    const { selectedRepo } = useAppContext();
+    const { selectedRepo, socket } = useAppContext();
     const { secSummary: ctxSecSummary, monitorSites: ctxSites, monitorSitesLoaded } = useAppContext();
     const [range, setRange]           = useState('7d');
     const [metrics, setMetrics]       = useState(null);
@@ -335,6 +351,8 @@ const Dashboard = () => {
         const days = range === '24h' ? 1 : range === '7d' ? 7 : 30;
         if (isManual) setRefreshing(true);
         try {
+            // Sync first so workflow_runs table is populated, then fetch
+            await api.syncDoraMetrics(selectedRepo, days).catch(() => {});
             const [curr, full] = await Promise.all([
                 api.getDoraMetrics(selectedRepo, range),
                 api.getDoraMetrics(selectedRepo, days * 2),
@@ -409,7 +427,7 @@ const Dashboard = () => {
             {!loading && <NeedsAttention secSummary={secSummary} runs={runs} sites={sites} />}
 
             {/* ── KPI Row ── */}
-            <div className="kpi-grid-4" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 20, marginBottom: 24 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 20, marginBottom: 24 }}>
                 {kpis.map((k, i) => (
                     <div key={k.title} style={{ animation: `slideUp 0.5s ease-out ${i*0.08}s both` }}>
                         <StatCard {...k} loading={loading} />
@@ -418,18 +436,18 @@ const Dashboard = () => {
             </div>
 
             {/* ── Charts + Activity Feed ── */}
-            <div className="chart-activity-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 340px', gap: 20, marginBottom: 24, height: 340 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 340px', gap: 20, marginBottom: 24, height: 340 }}>
                 <ChartCard title="Deployment Volume" icon={Rocket} badge={{ label: range, className: 'badge-muted' }}>
                     {loading ? <div className="h-full skeleton rounded-xl" /> : chartData.dep ? <Bar key={`dep-${range}`} data={chartData.dep} options={chartOpts()} /> : <div className="flex h-full w-full items-center justify-center text-slate-500 text-sm">No data</div>}
                 </ChartCard>
                 <ChartCard title="Pipeline Success Rate" icon={TrendingUp} badge={{ label: 'Stability', className: 'badge-green' }}>
                     {loading ? <div className="h-full skeleton rounded-xl" /> : chartData.sr ? <Line key={`sr-${range}`} data={chartData.sr} options={chartOpts('%')} /> : <div className="flex h-full w-full items-center justify-center text-slate-500 text-sm">No data</div>}
                 </ChartCard>
-                <ActivityFeed runs={runs} loading={loading} />
+                <ActivityFeed runs={runs} loading={loading} socketConnected={!!socket?.connected} />
             </div>
 
             {/* ── Security + Sites ── */}
-            <div className="security-sites-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
                 <SecurityCard secSummary={secSummary} loading={loading} />
                 <SitesCard sites={sites} loading={sitesLoading} />
             </div>

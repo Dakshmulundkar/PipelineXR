@@ -8,7 +8,7 @@
 
 [![License](https://img.shields.io/badge/license-Proprietary-red.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg)](https://nodejs.org)
-[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-0.5.6-blue.svg)]()
 
 [Overview](#overview) · [Features](#features) · [Getting Started](#getting-started) · [Configuration](#configuration) · [Architecture](#architecture) · [Contributing](#contributing)
 
@@ -38,6 +38,8 @@ PipelineXR is a DevOps analytics service that gives engineering teams a single p
 - Lead time for changes and average queue wait time
 - 7 / 30 / 90-day trend charts with daily granularity
 - Automatic sync from GitHub Actions API on page load
+- Real trend indicators comparing current vs previous period for all KPIs
+- Change Failure Rate (CFR) chart — percentage of deployments that resulted in failure
 
 ### Security Scanning
 - **Trivy** — full vulnerability, secret, and misconfiguration scanning via Docker; automatically falls back to the built-in TrivyLite engine when Docker is unavailable
@@ -53,9 +55,14 @@ PipelineXR is a DevOps analytics service that gives engineering teams a single p
 - Per-run blended risk score (60% deployment + 40% security) with Healthy / Suspect / Risky levels
 
 ### AI-Assisted Remediation
-- Google Gemini-powered fix suggestions for detected vulnerabilities
-- Contextual remediation steps surfaced directly in the Security page
-- Sanitized, minimal data sent to the AI — never raw user-controlled strings
+- Hugging Face Space (Qwen-7B) as primary LLM engine with Google Gemini fallback and static templates as last resort
+- DORA insights — AI-generated analysis of deployment performance, grade, key insights, and recommendations
+- Security review — AI-enhanced vulnerability analysis with risk summary, critical actions, and per-CVE fix guidance
+- Pipeline failure emails — auto-generated incident notifications with urgency scoring
+- Uptime alert emails — contextual outage notifications with escalation guidance
+- Incident response — structured runbooks generated on demand
+- All AI results cached for 30 minutes to avoid redundant inference on slow CPU models
+- Error diagnosis panel — maps common LLM errors (deprecated models, quota exhaustion, timeouts) to actionable fixes
 
 ### Uptime Monitoring
 - Add any public URL and get 60-second interval health checks via background cron
@@ -63,6 +70,7 @@ PipelineXR is a DevOps analytics service that gives engineering teams a single p
 - Uptime percentage, avg / min / max response time, and total check count per time range
 - Visual 90-slot uptime bar and response time line chart
 - Incident log with start time, resolve time, and duration
+- **MTTR (Mean Time To Recovery)** — automatically calculated from resolved incident history
 - Email alerts on site down and recovery via Gmail SMTP (App Password)
 - Admin mode — unlimited monitored sites; free users get one
 
@@ -71,6 +79,9 @@ PipelineXR is a DevOps analytics service that gives engineering teams a single p
 - Quality index per suite with pass rate calculation
 - One-click PDF export powered by pdfkit — no headless browser required, works on any host
 - Sync jobs and steps directly from the GitHub Actions API
+- **Test Results section** — total tests, pass/fail counts, pass rate, and per-workflow breakdown
+- **AI Health Insights** — collapsible card with DORA analysis and security posture summary powered by the LLM pipeline
+- Build stability timeline with consecutive failure streak detection
 
 ### Intrusion Detection (IDS)
 - In-memory sliding window rate tracking per IP (1-minute window)
@@ -265,7 +276,7 @@ PipelineXR/
 | Database | PostgreSQL via Neon (connect-pg-simple for sessions) |
 | Auth | GitHub OAuth 2.0, express-session |
 | Security | Trivy (Docker), TrivyLite (built-in), npm audit, Snyk, Dependabot |
-| AI | Google Gemini (`@google/generative-ai`) |
+| AI | Hugging Face (Qwen-7B), Google Gemini fallback (`@google/generative-ai`) |
 | PDF | pdfkit |
 | Observability | Datadog (optional) |
 | Rate Limiting | express-rate-limit, express-slow-down |
@@ -283,6 +294,35 @@ node init-database.js     # Initialize or re-run database schema
 npm run install:trivy     # Install Trivy binary locally
 docker-compose up         # Run full stack in Docker
 ```
+
+---
+
+## Changelog
+
+### v0.5.6
+- **Reports page** — added Test Results section (total tests, pass/fail counts, pass rate, per-workflow breakdown) wired to `/api/reports/tests`
+- **Reports page** — added AI Health Insights collapsible card pulling from DORA insights and security review LLM endpoints
+- **Reports page** — fixed AI insight data extraction (was rendering `[object Object]` instead of the summary string)
+- **Reports page** — fixed Test Results field mapping (was reading wrong field names from API response)
+- **Reports page** — DoraSection now syncs before fetching with proper cancellation on unmount
+- **Metrics page** — replaced Wait Time chart with Change Failure Rate (CFR) — a real DORA metric
+- **Metrics page** — KPI trends now compare current vs previous period (real data, not static)
+- **Metrics page** — added Datadog connection state badge (connected / not configured / connection error / checking)
+- **Metrics page** — added Test Results section (shared logic from Reports)
+- **Metrics page** — fixed `StatCard` prop mismatch (`label` → `title`, hex colors → theme names)
+- **Metrics page** — fixed cache storing stale `prevMetricsData` from state instead of freshly computed value
+- **Metrics page** — fixed API response mutation (`data.changeFailureRate = ...` → spread into new object)
+- **Metrics page** — fixed variable name shadowing (`r` parameter in filter callbacks renamed to `run`)
+- **Metrics page** — Datadog connection state now resets to "checking..." on each load
+- **Dashboard** — NeedsAttention items now navigate to the correct page on click
+- **Dashboard** — ActivityFeed Live indicator reflects actual socket connection state
+- **Dashboard** — SitesCard "checked Xm ago" now updates every 60s via interval tick
+- **Dashboard** — sync-before-fetch pattern applied (syncDoraMetrics before getDoraMetrics)
+- **Monitoring** — added MTTR (Mean Time To Recovery) stat pill calculated from resolved incidents
+- **AppContext** — socket listener for `security_update` events auto-refreshes security summary on scan completion
+
+### v0.5.0
+- Initial public release with full pipeline observability, DORA metrics, security scanning, uptime monitoring, and AI remediation
 
 ---
 

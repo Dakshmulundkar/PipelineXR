@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { BarChart2, Clock, RefreshCw, Activity, Zap, Target, Database } from 'lucide-react';
+import { BarChart2, Clock, RefreshCw, Activity, Zap, Target, Database, Beaker, CheckCircle2, XCircle, TrendingUp, AlertTriangle } from 'lucide-react';
 import { Line, Bar } from 'react-chartjs-2';
 import {
     Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement,
@@ -13,6 +13,12 @@ import { cacheGet, cacheSet } from '../services/cache';
 import AiInsightPanel from '../components/AiInsightPanel';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Title, Tooltip, Legend, Filler);
+
+function calcTrend(current, previous) {
+    if (previous == null || previous === 0) return null;
+    const delta = Math.round(((current - previous) / previous) * 100);
+    return { trend: Math.abs(delta), trendUp: delta >= 0 };
+}
 
 const LINE_OPTS = (label, unit = '') => ({
     responsive: true,
@@ -53,6 +59,83 @@ const LINE_OPTS = (label, unit = '') => ({
 
 const RANGES = ['24h', '7d', '30d', '90d'];
 
+// ── Test Results section (shared from Reports) ────────────────────────────────
+const TestResultsSection = ({ repo }) => {
+    const [data, setData] = useState(null);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        setLoading(true);
+        api.getTestReports(repo)
+            .then(d => setData(Array.isArray(d) ? d : d?.tests || []))
+            .catch(() => setData([]))
+            .finally(() => setLoading(false));
+    }, [repo]);
+
+    if (loading) return <div style={{ color: 'rgba(255,255,255,0.2)', fontSize: 13 }}>Loading test data...</div>;
+    if (!data || data.length === 0) return (
+        <div style={{ color: 'rgba(52,211,153,0.7)', fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <CheckCircle2 size={14} /> No test runs recorded.
+        </div>
+    );
+
+    let total = 0, passed = 0, failed = 0;
+    const byWorkflow = {};
+
+    for (const item of data) {
+        const name = item.suite_name || item.workflow_name || 'Unknown';
+        const t = parseInt(item.total_tests) || 0;
+        const p = parseInt(item.passed) || 0;
+        const f = parseInt(item.failed) || 0;
+        if (t === 0) continue;
+
+        if (!byWorkflow[name]) byWorkflow[name] = { total: 0, passed: 0, failed: 0 };
+        byWorkflow[name].total += t;
+        byWorkflow[name].passed += p;
+        byWorkflow[name].failed += f;
+
+        total += t;
+        passed += p;
+        failed += f;
+    }
+
+    const passRate = total > 0 ? Math.round((passed / total) * 100) : 0;
+    const workflowEntries = Object.entries(byWorkflow).filter(([, w]) => w.total > 0);
+
+    return (
+        <div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+                <StatCard title="Total Tests" value={total} icon={Beaker} color="blue" />
+                <StatCard title="Passed" value={passed} color="emerald" icon={CheckCircle2} />
+                <StatCard title="Failed" value={failed} color={failed > 0 ? 'rose' : 'blue'} icon={XCircle} />
+                <StatCard title="Pass Rate" value={`${passRate}%`} color={passRate >= 80 ? 'emerald' : passRate >= 60 ? 'orange' : 'rose'} icon={TrendingUp} />
+            </div>
+
+            {workflowEntries.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>By Workflow</div>
+                    {workflowEntries.map(([name, w]) => {
+                        const rate = w.total > 0 ? Math.round((w.passed / w.total) * 100) : 0;
+                        return (
+                            <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', width: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 0 }}>{name}</div>
+                                <div style={{ flex: 1, height: 6, background: 'rgba(255,255,255,0.06)', borderRadius: 3 }}>
+                                    <div style={{ height: '100%', borderRadius: 3, width: `${rate}%`, background: rate >= 80 ? '#34D399' : rate >= 60 ? '#FBBF24' : '#F87171', transition: 'width 0.6s ease' }} />
+                                </div>
+                                <span style={{ fontSize: 11, fontWeight: 700, color: rate >= 80 ? '#34D399' : rate >= 60 ? '#FBBF24' : '#F87171', width: 36, textAlign: 'right', flexShrink: 0 }}>{rate}%</span>
+                                <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.2)', width: 50, textAlign: 'right', flexShrink: 0 }}>
+                                    <span style={{ color: '#34D399' }}>{w.passed} </span>
+                                    <span style={{ color: '#F87171' }}>{w.failed > 0 ? `${w.failed}` : ''}</span>
+                                </span>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+        </div>
+    );
+};
+
 const Metrics = () => {
     const { selectedRepo, socket } = useAppContext();
     const [range, setRange] = useState('7d');
@@ -60,8 +143,12 @@ const Metrics = () => {
     const [charts, setCharts] = useState({});
 
     const [metricsData, setMetricsData] = useState(null);
+    const [prevMetricsData, setPrevMetricsData] = useState(null);
     const [secSummary, setSecSummary] = useState(null);
     const controller = useRef(null);
+
+    // Datadog connection state
+    const [ddConnectionState, setDdConnectionState] = useState('unknown'); // 'unknown' | 'connected' | 'not_configured' | 'error'
 
     // Datadog panel state — shows PipelineXR metrics we push to Datadog
     const [ddEnabled, setDdEnabled] = useState(false);
@@ -82,12 +169,21 @@ const Metrics = () => {
     const loadDatadog = useCallback(async (q, r) => {
         setDdLoading(true);
         setDdError(null);
+        setDdConnectionState('unknown'); // Reset to unknown while loading
         try {
             const res = await api.queryDatadogMetric(q, r, selectedRepo || null);
             setDdPoints(res.points || []);
+            setDdConnectionState('connected');
         } catch (e) {
-            setDdError(e?.response?.data?.error || e.message);
+            const errorMsg = e?.response?.data?.error || e.message || '';
+            setDdError(errorMsg);
             setDdPoints([]);
+            // Check if error is due to not configured vs actual error
+            if (errorMsg.toLowerCase().includes('not configured') || errorMsg.toLowerCase().includes('api key') || e?.response?.status === 401) {
+                setDdConnectionState('not_configured');
+            } else {
+                setDdConnectionState('error');
+            }
         } finally {
             setDdLoading(false);
         }
@@ -105,9 +201,10 @@ const Metrics = () => {
         if (!force) {
             const cached = cacheGet('metrics', selectedRepo, r);
             if (cached) {
-                const { metricsData: md, charts: ch } = cached.data;
+                const { metricsData: md, charts: ch, prevMetricsData: pmd } = cached.data;
                 setMetricsData(md);
                 setCharts(ch);
+                setPrevMetricsData(pmd);
                 setLoading(false);
                 if (!cached.stale) return;
                 // stale — fall through to refresh silently (no loading spinner)
@@ -132,11 +229,53 @@ const Metrics = () => {
                 }
             }
 
-            const data = await api.getDoraMetrics(selectedRepo || null, r);
+            // Fetch current and previous period data for trend calculation
+            const days = r === '24h' ? 1 : r === '7d' ? 7 : r === '30d' ? 30 : 90;
+            const [data, fullData] = await Promise.all([
+                api.getDoraMetrics(selectedRepo || null, r),
+                api.getDoraMetrics(selectedRepo || null, `${days * 2}d`), // Double period for previous comparison
+            ]);
             setMetricsData(data);
-            
-            if (data && data.rawRuns) {
-                const days = r === '24h' ? 1 : r === '7d' ? 7 : r === '30d' ? 30 : 90;
+
+            // Calculate current CFR from data if not present
+            let currentCFR = 0;
+            if (data?.rawRuns) {
+                const totalRuns = data.rawRuns.length;
+                const failedRuns = data.rawRuns.filter(run => run.conclusion && run.conclusion !== 'success').length;
+                currentCFR = totalRuns > 0 ? Math.round((failedRuns / totalRuns) * 100) : 0;
+            }
+            // Don't mutate the API response — create new object with CFR
+            const enrichedData = { ...data, changeFailureRate: currentCFR };
+            setMetricsData(enrichedData);
+
+            // Calculate previous period metrics for trends
+            let newPrevMetrics = null;
+            if (fullData?.rawRuns) {
+                const cutoff = new Date();
+                cutoff.setDate(cutoff.getDate() - days);
+                const prevRuns = fullData.rawRuns.filter(run => new Date(run.run_started_at) < cutoff);
+                const prevTotal = prevRuns.length;
+                const prevSuccess = prevRuns.filter(run => run.conclusion === 'success').length;
+                const prevFailed = prevRuns.filter(run => run.conclusion && run.conclusion !== 'success').length;
+                const prevSuccessRate = prevTotal > 0 ? Math.round((prevSuccess / prevTotal) * 100) : 0;
+                const prevDurations = prevRuns.map(run => (new Date(run.updated_at) - new Date(run.run_started_at)) / 60000).filter(v => v > 0);
+                const prevAvgDuration = prevDurations.length ? Math.round((prevDurations.reduce((a, b) => a + b, 0) / prevDurations.length) * 10) / 10 : 0;
+                const prevDeployFreq = days > 0 ? Math.round((prevSuccess / days) * 10) / 10 : 0;
+                const prevCFR = prevTotal > 0 ? Math.round((prevFailed / prevTotal) * 100) : 0;
+                newPrevMetrics = {
+                    deploymentFrequency: prevDeployFreq,
+                    totalDeployments: prevSuccess,
+                    successRate: prevSuccessRate,
+                    avgBuildDuration: prevAvgDuration,
+                    changeFailureRate: prevCFR
+                };
+                setPrevMetricsData(newPrevMetrics);
+            } else {
+                setPrevMetricsData(null);
+            }
+
+            if (enrichedData && enrichedData.rawRuns) {
+                const chartDays = r === '24h' ? 1 : r === '7d' ? 7 : r === '30d' ? 30 : 90;
                 const use24h = r === '24h';
                 const now = new Date();
 
@@ -161,7 +300,7 @@ const Metrics = () => {
                     };
                 } else {
                     // Daily slots: "YYYY-MM-DD"
-                    for (let i = days - 1; i >= 0; i--) {
+                    for (let i = chartDays - 1; i >= 0; i--) {
                         const d = new Date(now);
                         d.setDate(d.getDate() - i);
                         slots.push(d.toISOString().split('T')[0]);
@@ -172,7 +311,7 @@ const Metrics = () => {
 
                 // Group runs by slot
                 const bySlot = {};
-                for (const run of data.rawRuns) {
+                for (const run of enrichedData.rawRuns) {
                     const key = slotKey(run);
                     if (!key) continue;
                     if (!bySlot[key]) bySlot[key] = [];
@@ -206,16 +345,13 @@ const Metrics = () => {
                     return runs ? runs.filter(run => run.conclusion === 'success').length : 0;
                 });
 
-                const leadTimeData = slots.map(slot => {
+                // Change Failure Rate (CFR) - percentage of deployments that failed
+                const cfrData = slots.map(slot => {
                     const runs = bySlot[slot];
                     if (!runs || runs.length === 0) return 0;
-                    const waits = runs.map(run => {
-                        const start = new Date(run.run_started_at);
-                        const created = new Date(run.created_at);
-                        return (start - created) / 3600000;
-                    }).filter(v => v >= 0);
-                    if (waits.length === 0) return 0;
-                    return parseFloat((waits.reduce((a, b) => a + b, 0) / waits.length).toFixed(2));
+                    const failed = runs.filter(run => run.conclusion && run.conclusion !== 'success').length;
+                    const pct = (failed / runs.length) * 100;
+                    return parseFloat(pct.toFixed(1));
                 });
 
                 // Point radius: show dot only on slots that have actual data
@@ -277,31 +413,31 @@ const Metrics = () => {
                             borderRadius: 6, borderSkipped: false, barThickness: use24h ? 8 : days <= 7 ? 20 : days <= 30 ? 10 : 5,
                         }]
                     },
-                    leadTime: {
+                    cfr: {
                         labels,
                         datasets: [{
-                            label: 'Avg Wait Time (h)',
-                            data: leadTimeData,
-                            borderColor: '#A855F7',
+                            label: 'Change Failure Rate (%)',
+                            data: cfrData,
+                            borderColor: '#F87171',
                             backgroundColor: (context) => {
                                 const ctx = context.chart.ctx;
                                 const g = ctx.createLinearGradient(0, 0, 0, 300);
-                                g.addColorStop(0, 'rgba(168, 85, 247, 0.2)');
-                                g.addColorStop(1, 'rgba(168, 85, 247, 0)');
+                                g.addColorStop(0, 'rgba(248, 113, 113, 0.2)');
+                                g.addColorStop(1, 'rgba(248, 113, 113, 0)');
                                 return g;
                             },
                             fill: true, tension: 0.4,
-                            pointRadius: pointRadii(leadTimeData),
-                            pointHoverRadius: pointHoverRadii(leadTimeData),
-                            pointBackgroundColor: '#A855F7', pointBorderColor: '#fff',
+                            pointRadius: pointRadii(cfrData),
+                            pointHoverRadius: pointHoverRadii(cfrData),
+                            pointBackgroundColor: '#F87171', pointBorderColor: '#fff',
                         }]
                     },
                 };
 
                 setCharts(newCharts);
 
-                // Cache for instant re-render on next visit
-                cacheSet('metrics', selectedRepo, { metricsData: data, charts: newCharts }, r);
+                // Cache for instant re-render on next visit — use freshly computed prevMetrics, not stale state
+                cacheSet('metrics', selectedRepo, { metricsData: enrichedData, charts: newCharts, prevMetricsData: newPrevMetrics }, r);
             }
 
             api.getSecuritySummary(selectedRepo || null)
@@ -356,11 +492,17 @@ const Metrics = () => {
         return Math.max(0, 100 - deductions).toFixed(1);
     };
 
+    // Calculate real trends comparing current vs previous period
+    const durTrend = prevMetricsData ? calcTrend(metricsData?.avgBuildDuration ?? 0, prevMetricsData.avgBuildDuration) : null;
+    const depTrend = prevMetricsData ? calcTrend(metricsData?.totalDeployments ?? 0, prevMetricsData.totalDeployments) : null;
+    const srTrend = prevMetricsData ? calcTrend(metricsData?.successRate ?? 0, prevMetricsData.successRate) : null;
+    const cfrTrend = prevMetricsData ? calcTrend(metricsData?.changeFailureRate ?? 0, prevMetricsData.changeFailureRate) : null;
+
     const kpis = [
-        { title: 'Avg Build Duration', value: metricsData ? `${metricsData.avgBuildDuration}m` : '…', subtitle: `Last ${range}`, icon: Clock, color: 'blue', trend: 15, trendUp: false },
-        { title: 'Total Deployments', value: metricsData ? metricsData.totalDeployments : '…', subtitle: `Last ${range}`, icon: BarChart2, color: 'purple', trend: 8, trendUp: true },
-        { title: 'Success Rate', value: metricsData ? `${metricsData.successRate}%` : '…', subtitle: 'Pipeline Average', icon: Activity, color: 'emerald', trend: 4, trendUp: true },
-        { title: 'Code Integrity', value: secSummary ? `${calculateIntegrityScore()}%` : '...', subtitle: 'Security Scan Based', icon: Zap, color: 'indigo' },
+        { title: 'Avg Build Duration', value: metricsData ? `${metricsData.avgBuildDuration}m` : '…', subtitle: `Last ${range}`, icon: Clock, color: 'blue', ...(durTrend ? { trend: durTrend.trend, trendUp: !durTrend.trendUp } : {}) },
+        { title: 'Total Deployments', value: metricsData ? metricsData.totalDeployments : '…', subtitle: `Last ${range}`, icon: BarChart2, color: 'purple', ...(depTrend || {}) },
+        { title: 'Success Rate', value: metricsData ? `${metricsData.successRate}%` : '…', subtitle: 'Pipeline Average', icon: Activity, color: 'emerald', ...(srTrend || {}) },
+        { title: 'Change Failure Rate', value: metricsData ? `${metricsData.changeFailureRate ?? 0}%` : '…', subtitle: 'Failed / Total', icon: AlertTriangle, color: 'rose', ...(cfrTrend ? { trend: cfrTrend.trend, trendUp: !cfrTrend.trendUp } : {}) },
     ];
 
     return (
@@ -462,16 +604,29 @@ const Metrics = () => {
                 <ChartCard title="Deployment Frequency" icon={BarChart2} badge={{ label: 'Volume', className: 'badge-muted' }}>
                     {loading ? <div className="h-full skeleton rounded-xl" /> : charts.deployFreq ? <Bar key={`df-${range}`} data={charts.deployFreq} options={LINE_OPTS('Deploys')} /> : <div className="flex h-full w-full items-center justify-center text-slate-500 text-sm">No data available</div>}
                 </ChartCard>
-                <ChartCard title="Wait Time Metrics" icon={Zap} badge={{ label: 'Hours', className: 'badge-muted' }}>
-                    {loading ? <div className="h-full skeleton rounded-xl" /> : charts.leadTime ? <Line key={`lt-${range}`} data={charts.leadTime} options={LINE_OPTS('Hours', 'h')} /> : <div className="flex h-full w-full items-center justify-center text-slate-500 text-sm">No data available</div>}
+                <ChartCard title="Change Failure Rate" icon={AlertTriangle} badge={{ label: 'Percentage', className: 'badge-rose' }}>
+                    {loading ? <div className="h-full skeleton rounded-xl" /> : charts.cfr ? <Line key={`cfr-${range}`} data={charts.cfr} options={LINE_OPTS('CFR', '%')} /> : <div className="flex h-full w-full items-center justify-center text-slate-500 text-sm">No data available</div>}
                 </ChartCard>
             </div>
+            )}
+
+            {/* Test Results */}
+            {selectedRepo && (
+                <div style={{ marginTop: 32, background: 'rgba(28,28,30,0.4)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 24, padding: 28 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+                        <Beaker size={18} color="#60A5FA" />
+                        <span style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>Test Results</span>
+                        <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>from recorded workflow runs</span>
+                    </div>
+                    <TestResultsSection repo={selectedRepo} />
+                </div>
             )}
 
             {/* AI DORA Insights */}
             {selectedRepo && !loading && metricsData && (
                 <div style={{ marginTop: 32 }}>
                     <AiInsightPanel
+                        key={`ai-${range}`}
                         title="AI DORA Insights"
                         onFetch={() => api.getDoraInsights(selectedRepo, range)}
                     />
@@ -479,11 +634,23 @@ const Metrics = () => {
             )}
 
             {/* Datadog Live Metrics */}
-            {ddEnabled && (                <div style={{ marginTop: 32 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+            {ddEnabled && (
+                <div style={{ marginTop: 32, background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 24, padding: 24 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
                         <Database size={16} color="#7C3AED" />
                         <span style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>Datadog — PipelineXR Metrics</span>
-                        <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6, background: 'rgba(124,58,237,0.15)', color: '#A78BFA', border: '1px solid rgba(124,58,237,0.3)' }}>live</span>
+                        {ddConnectionState === 'connected' && (
+                            <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6, background: 'rgba(52,211,153,0.15)', color: '#34D399', border: '1px solid rgba(52,211,153,0.3)' }}>connected</span>
+                        )}
+                        {ddConnectionState === 'not_configured' && (
+                            <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6, background: 'rgba(251,191,36,0.15)', color: '#FBBF24', border: '1px solid rgba(251,191,36,0.3)' }}>not configured</span>
+                        )}
+                        {ddConnectionState === 'error' && (
+                            <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6, background: 'rgba(248,113,113,0.15)', color: '#F87171', border: '1px solid rgba(248,113,113,0.3)' }}>connection error</span>
+                        )}
+                        {ddConnectionState === 'unknown' && (
+                            <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6, background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.4)', border: '1px solid rgba(255,255,255,0.1)' }}>checking...</span>
+                        )}
                     </div>
 
                     {/* Metric selector + range */}
@@ -518,13 +685,24 @@ const Metrics = () => {
 
                     {/* Chart */}
                     <div style={{
-                        background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.07)',
+                        background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.05)',
                         borderRadius: 16, padding: 24, minHeight: 220,
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                     }}>
                         {ddLoading && <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13 }}>Loading…</span>}
-                        {ddError && <span style={{ color: '#F87171', fontSize: 13 }}>Datadog query failed — check APP_KEY has metrics_read scope.</span>}
-                        {!ddLoading && !ddError && ddPoints !== null && (
+                        {ddConnectionState === 'not_configured' && !ddLoading && (
+                            <div style={{ textAlign: 'center', color: 'rgba(255,255,255,0.5)', fontSize: 13 }}>
+                                <div>Datadog is not configured</div>
+                                <div style={{ fontSize: 11, marginTop: 4, color: 'rgba(255,255,255,0.3)' }}>Set DATADOG_API_KEY and DATADOG_APP_KEY to enable metrics</div>
+                            </div>
+                        )}
+                        {ddConnectionState === 'error' && ddError && (
+                            <div style={{ textAlign: 'center', color: '#F87171', fontSize: 13 }}>
+                                <div>Connection failed</div>
+                                <div style={{ fontSize: 11, marginTop: 4, color: 'rgba(255,255,255,0.4)' }}>{ddError}</div>
+                            </div>
+                        )}
+                        {ddConnectionState === 'connected' && !ddLoading && !ddError && ddPoints !== null && (
                             ddPoints.length === 0
                                 ? <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 13 }}>No data yet — metrics will appear after pipelines run.</span>
                                 : <div style={{ width: '100%', height: 200 }}>

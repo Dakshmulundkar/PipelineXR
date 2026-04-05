@@ -534,3 +534,4 @@ async function scanDirectory(dirPath) {
 }
 
 module.exports = { scanDirectory, SECRET_RULES, SAST_RULES, DOCKERFILE_RULES, K8S_RULES, IAC_RULES, VULN_DB };
+
