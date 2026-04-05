@@ -112,9 +112,9 @@ class MetricsService {
                 INSERT INTO workflow_runs (
                     user_id, run_id, workflow_id, workflow_name, head_branch, head_sha, status, conclusion, event,
                     run_number, run_attempt, run_started_at, created_at, updated_at, repository, owner, html_url,
-                    duration_seconds, jobs_count
+                    duration_seconds, jobs_count, head_commit_message, triggering_actor
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(user_id, run_id) DO UPDATE SET
                     workflow_id=EXCLUDED.workflow_id, workflow_name=EXCLUDED.workflow_name,
                     head_branch=EXCLUDED.head_branch, head_sha=EXCLUDED.head_sha,
@@ -123,14 +123,18 @@ class MetricsService {
                     run_started_at=EXCLUDED.run_started_at, created_at=EXCLUDED.created_at,
                     updated_at=EXCLUDED.updated_at, repository=EXCLUDED.repository,
                     owner=EXCLUDED.owner, html_url=EXCLUDED.html_url,
-                    duration_seconds=EXCLUDED.duration_seconds, jobs_count=EXCLUDED.jobs_count
+                    duration_seconds=EXCLUDED.duration_seconds, jobs_count=EXCLUDED.jobs_count,
+                    head_commit_message=EXCLUDED.head_commit_message,
+                    triggering_actor=EXCLUDED.triggering_actor
             `;
             const params = [
                 userId, runId, r.workflow_id || null, r.name || r.workflow_name || null,
                 r.head_branch || null, r.head_sha || null, r.status || null, r.conclusion || null,
                 r.event || null, r.run_number || null, r.run_attempt || null,
                 r.run_started_at || null, r.created_at || null, r.updated_at || null,
-                repository, owner, r.html_url || null, durationSeconds, 0
+                repository, owner, r.html_url || null, durationSeconds, 0,
+                r.head_commit?.message || null,
+                r.triggering_actor?.login || null,
             ];
 
             await new Promise((resolve, reject) => {

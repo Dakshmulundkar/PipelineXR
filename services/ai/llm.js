@@ -6,23 +6,25 @@
  * Unified LLM client for PipelineXR.
  *
  * Primary:  Hugging Face Space (Qwen-7B)  — HF_SPACE_URL env var
- * Fallback: Google Gemini                 — GEMINI_API_KEY env var
+ * Fallback: xAI Grok                      — XAI_API_KEY env var (OpenAI-compatible)
  * Last:     Static templates              — always available
  *
  * All public methods return { ok, data, source, latency_ms }
  * Callers should never throw — errors are caught and fallback is used.
  */
 
-const { GoogleGenerativeAI } = require('@google/generative-ai');
-
 const HF_URL     = (process.env.HF_SPACE_URL || process.env.HUGGINGFACE_LLM_URL || '').replace(/\/$/, '');
 const HF_SECRET  = process.env.HF_SPACE_SECRET || process.env.HUGGINGFACE_API_SECRET || '';
 // CPU inference on HF Space takes 3-8 min per request — default timeout is 10 min
 const HF_TIMEOUT = parseInt(process.env.HF_TIMEOUT_MS || '600000', 10);
 
-// Note: Node.js 18+ fetch has built-in connection pooling — no extra HTTP client needed.
-if (!HF_URL && !process.env.GEMINI_API_KEY) {
-    console.warn('[LLM] Warning: No HF Space or Gemini configured — only static templates will work');
+// xAI Grok — OpenAI-compatible API, free tier available
+const XAI_API_KEY = process.env.XAI_API_KEY || '';
+const XAI_MODEL   = process.env.XAI_MODEL || 'grok-3-mini';
+const XAI_BASE    = 'https://api.x.ai/v1';
+
+if (!HF_URL && !XAI_API_KEY) {
+    console.warn('[LLM] Warning: No HF Space or xAI Grok configured — only static templates will work');
 }
 
 // Simple in-process cache: key → { data, ts }
@@ -47,7 +49,7 @@ function cacheSet(key, data) {
 // ── HF Space HTTP call ────────────────────────────────────────────────────────
 // Your HF Space returns: { ok: true, data: "<json string>" }
 // The "data" field is a JSON string that must be parsed by the caller.
-async function hfPost(endpoint, body, retries = 1) {
+async function hfPost(endpoint, body, retries = 2) {
     if (!HF_URL) throw new Error('HF_SPACE_URL not configured');
 
     const headers = { 'Content-Type': 'application/json' };
@@ -82,57 +84,69 @@ async function hfPost(endpoint, body, retries = 1) {
         } catch (err) {
             clearTimeout(timer);
             if (attempt === retries) throw err;
-            // Only retry on network errors / 5xx, with backoff
-            await new Promise(r => setTimeout(r, 3000 * (attempt + 1)));
+            // On fetch failed (Space sleeping/cold start), wait longer before retry
+            const isFetchFail = err.message === 'fetch failed' || err.name === 'AbortError';
+            const backoff = isFetchFail ? 15000 * (attempt + 1) : 3000 * (attempt + 1);
+            console.warn(`[LLM] HF attempt ${attempt + 1} failed (${err.message}) — retrying in ${backoff / 1000}s`);
+            await new Promise(r => setTimeout(r, backoff));
         }
     }
 }
 
-// ── Gemini fallback ───────────────────────────────────────────────────────────
-let _gemini = null;
+// ── xAI Grok fallback (OpenAI-compatible) ────────────────────────────────────
+// Track quota exhaustion — back off if we hit rate limits
+let _grokQuotaExhaustedUntil = 0;
 
-// Track Gemini quota exhaustion — if we hit a 429 daily limit, stop trying until reset
-let _geminiQuotaExhaustedUntil = 0;
-
-function isGeminiQuotaError(err) {
+function isQuotaError(err) {
     const msg = err?.message || '';
-    return msg.includes('429') || msg.includes('quota') || msg.includes('RESOURCE_EXHAUSTED');
+    return msg.includes('429') || msg.includes('quota') || msg.includes('rate limit') || msg.includes('RESOURCE_EXHAUSTED');
 }
 
-function getGemini() {
-    if (!process.env.GEMINI_API_KEY) return null;
-    if (Date.now() < _geminiQuotaExhaustedUntil) return null; // still in backoff
-    if (!_gemini) {
-        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-        // gemini-2.0-flash: higher free tier quotas than flash-lite (15 RPM → 15 RPM but higher daily limit)
-        _gemini = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+async function grokGenerate(prompt) {
+    if (!XAI_API_KEY) throw new Error('xAI API key not configured');
+    if (Date.now() < _grokQuotaExhaustedUntil) {
+        const mins = Math.ceil((_grokQuotaExhaustedUntil - Date.now()) / 60000);
+        throw new Error(`Grok quota exhausted — backing off for ~${mins}m`);
     }
-    return _gemini;
-}
 
-async function geminiGenerate(prompt) {
-    const m = getGemini();
-    if (!m) {
-        if (Date.now() < _geminiQuotaExhaustedUntil) {
-            const mins = Math.ceil((_geminiQuotaExhaustedUntil - Date.now()) / 60000);
-            throw new Error(`Gemini quota exhausted — backing off for ~${mins}m`);
-        }
-        throw new Error('Gemini not configured');
-    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 30000); // 30s timeout for Grok
     try {
-        const result = await m.generateContent(prompt);
-        return (await result.response).text();
+        const res = await fetch(`${XAI_BASE}/chat/completions`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${XAI_API_KEY}`,
+            },
+            body: JSON.stringify({
+                model: XAI_MODEL,
+                messages: [{ role: 'user', content: prompt }],
+                max_tokens: 1024,
+                temperature: 0.3,
+            }),
+            signal: controller.signal,
+        });
+        clearTimeout(timer);
+
+        if (!res.ok) {
+            const text = await res.text().catch(() => '');
+            if (res.status === 429) {
+                const retryAfter = parseInt(res.headers.get('retry-after') || '60', 10);
+                _grokQuotaExhaustedUntil = Date.now() + Math.min(retryAfter * 1000 + 5000, 60 * 60 * 1000);
+                console.warn(`[LLM] Grok rate limited — backing off for ${retryAfter}s`);
+            }
+            throw new Error(`Grok API ${res.status}: ${text.slice(0, 200)}`);
+        }
+
+        const json = await res.json();
+        const text = json.choices?.[0]?.message?.content || '';
+        if (!text) throw new Error('Grok returned empty response');
+        return text;
     } catch (err) {
-        if (isGeminiQuotaError(err)) {
-            // Extract retry delay — match "retry in 8.35s" capturing the integer part only
-            const retryMatch = err.message.match(/retry[^0-9]*(\d+)(?:\.\d+)?s/i);
-            const retrySecs = retryMatch ? parseInt(retryMatch[1], 10) : null;
-            // Cap at 1 hour — daily quota exhaustion should back off 1h, not days
-            const backoffMs = retrySecs && retrySecs < 3600
-                ? retrySecs * 1000 + 5000   // add 5s buffer
-                : 60 * 60 * 1000;           // 1 hour default / cap
-            _geminiQuotaExhaustedUntil = Date.now() + backoffMs;
-            console.warn(`[LLM] Gemini quota exhausted — backing off for ${Math.ceil(backoffMs / 1000)}s`);
+        clearTimeout(timer);
+        if (isQuotaError(err) && !err.message.includes('backing off')) {
+            _grokQuotaExhaustedUntil = Date.now() + 60 * 60 * 1000;
+            console.warn('[LLM] Grok quota error — backing off 1h');
         }
         throw err;
     }
@@ -169,23 +183,23 @@ async function securityReview(repository, vulnerabilities, scanEngine = 'trivy')
                 return out;
             }
         } catch (e) {
-            console.warn('[LLM] HF security-review failed, trying Gemini:', e.message);
+            console.warn('[LLM] HF security-review failed, trying Grok:', e.message);
         }
     }
 
-    // 2. Gemini fallback
+    // 2. Grok fallback
     try {
         const top = vulnerabilities.slice(0, 5).map(v =>
             `[${v.severity?.toUpperCase()}] ${v.cve_id || 'N/A'} in ${v.package_name}: ${(v.description || '').slice(0, 100)}`
         ).join('\n');
-        const text = await geminiGenerate(
+        const text = await grokGenerate(
             `You are a security analyst. Summarize these vulnerabilities and provide remediation steps:\n${top}\nRepository: ${repository}`
         );
-        const out = { ok: true, data: { risk_summary: text, source_model: 'gemini' }, source: 'gemini', latency_ms: Date.now() - t0 };
+        const out = { ok: true, data: { risk_summary: text, source_model: 'grok' }, source: 'grok', latency_ms: Date.now() - t0 };
         cacheSet(cacheKey, out);
         return out;
     } catch (e) {
-        console.warn('[LLM] Gemini security-review failed:', e.message);
+        console.warn('[LLM] Grok security-review failed:', e.message);
     }
 
     // 3. Static template
@@ -231,16 +245,16 @@ async function pipelineFailureEmail(runData, failedSteps = []) {
         }
     }
 
-    // Gemini fallback
+    // Grok fallback
     try {
         const prompt = `Write a professional pipeline failure notification email for:
 Repository: ${body.repository}, Workflow: ${body.workflow_name}, Branch: ${body.head_branch}
 Failed steps: ${failedSteps.join(', ') || 'unknown'}
 Include: subject line, executive summary, technical details, recommended actions.`;
-        const text = await geminiGenerate(prompt);
-        return { ok: true, data: { subject: `[FAILED] ${body.workflow_name} on ${body.head_branch}`, body_text: text, urgency: 'high' }, source: 'gemini', latency_ms: Date.now() - t0 };
+        const text = await grokGenerate(prompt);
+        return { ok: true, data: { subject: `[FAILED] ${body.workflow_name} on ${body.head_branch}`, body_text: text, urgency: 'high' }, source: 'grok', latency_ms: Date.now() - t0 };
     } catch (e) {
-        console.warn('[LLM] Gemini pipeline-email failed:', e.message);
+        console.warn('[LLM] Grok pipeline-email failed:', e.message);
     }
 
     // Static template
@@ -332,17 +346,17 @@ async function doraInsights(repository, metricsData, timeRange = '7d') {
         }
     }
 
-    // Gemini fallback
+    // Grok fallback
     try {
         const prompt = `Analyze these DORA metrics for ${repository} (${timeRange}):
 Success rate: ${body.success_rate}%, Avg build: ${body.avg_build_duration}min, Deployments: ${body.total_deployments}
 Provide: performance grade (Elite/High/Medium/Low), 3 key insights, 2 recommendations.`;
-        const text = await geminiGenerate(prompt);
-        const out = { ok: true, data: { executive_summary: text, source_model: 'gemini' }, source: 'gemini', latency_ms: Date.now() - t0 };
+        const text = await grokGenerate(prompt);
+        const out = { ok: true, data: { executive_summary: text, source_model: 'grok' }, source: 'grok', latency_ms: Date.now() - t0 };
         cacheSet(cacheKey, out);
         return out;
     } catch (e) {
-        console.warn('[LLM] Gemini dora-insights failed:', e.message);
+        console.warn('[LLM] Grok dora-insights failed:', e.message);
     }
 
     // Static

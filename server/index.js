@@ -11,7 +11,7 @@ const rateLimit = require('express-rate-limit');
 const slowDown = require('express-slow-down');
 const helmet = require('helmet');
 const path = require('path');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { GoogleGenerativeAI } = require('@google/generative-ai'); // kept for legacy PDF report generation only
 const { initializeDatabase } = require('../services/db-init');
 
 // Configuration
@@ -181,7 +181,7 @@ const monitor = require('../services/monitor');
 // Services are initialized inside startServer() after DB is ready
 let analytics, webhookService, realtimeService;
 
-// Initialize Gemini AI
+// Initialize Gemini AI (legacy — used only for PDF report inline generation)
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-lite' });
 
@@ -211,7 +211,8 @@ app.get('/api/config/check', (req, res) => {
         sessionSecret: SESSION_SECRET ? 'configured' : 'missing',
         frontendUrl: FRONTEND_URL,
         redirectUri: `${FRONTEND_URL}/auth/github/callback`,
-        geminiApiKey: process.env.GEMINI_API_KEY ? 'configured' : 'missing'
+        geminiApiKey: process.env.GEMINI_API_KEY ? 'configured' : 'missing',
+        xaiApiKey: process.env.XAI_API_KEY ? 'configured' : 'missing'
     };
 
     res.json({
@@ -258,7 +259,7 @@ const requireApiAuth = async (req, res, next) => {
                 name:       ghUser.name || ghUser.login,
                 last_login: new Date().toISOString(),
             });
-            const user = { ...ghUser, dbId: dbUser?.id, isAdmin: resolvedAdminLogin === ghUser.login };
+            const user = { ...ghUser, dbId: dbUser?.id, isAdmin: !!(resolvedAdminLogin && ghUser.login?.toLowerCase() === resolvedAdminLogin.toLowerCase()) };
             _tokenUserCache.set(ghToken, { user, ts: Date.now() });
             req.session.user = user;
             req.session.authenticated = true;
@@ -363,9 +364,9 @@ app.get('/auth/github/callback', async (req, res) => {
 
         // 4. Set Session
         req.session.user = userInfo;
-        req.session.user.isAdmin = (resolvedAdminLogin && userInfo.login === resolvedAdminLogin);
+        req.session.user.isAdmin = !!(resolvedAdminLogin && userInfo.login?.toLowerCase() === resolvedAdminLogin.toLowerCase());
         req.session.authenticated = true;
-        console.log(`Session established for user: ${userInfo.login} (admin: ${req.session.user.isAdmin})`);
+        console.log(`Session established for user: ${userInfo.login} (admin: ${req.session.user.isAdmin}, resolvedAdmin: ${resolvedAdminLogin})`);
 
 
         // 5. Auto-fetch Repos (Cache them or just log for now)
@@ -1155,7 +1156,7 @@ app.get('/api/security/insights', async (req, res) => {
             return res.json({ insight: "No vulnerabilities detected. Posture is clean." });
         }
 
-        // Use unified LLM service (HF → Gemini → static)
+        // Use unified LLM service (HF → Grok → static)
         const llm = require('../services/ai/llm');
         const result = await llm.securityReview(repository, vulnerabilities);
 
@@ -1312,15 +1313,15 @@ app.get('/api/ai/emails', async (req, res) => {
 // GET /api/ai/health — check HF Space connectivity
 app.get('/api/ai/health', async (req, res) => {
     const hfUrl = (process.env.HF_SPACE_URL || process.env.HUGGINGFACE_LLM_URL || '').replace(/\/$/, '');
-    if (!hfUrl) return res.json({ hf: false, gemini: Boolean(process.env.GEMINI_API_KEY), hf_url: null });
+    if (!hfUrl) return res.json({ hf: false, grok: Boolean(process.env.XAI_API_KEY), hf_url: null });
     try {
         const controller = new AbortController();
         setTimeout(() => controller.abort(), 8000);
         const r = await fetch(`${hfUrl}/health`, { signal: controller.signal });
         const data = await r.json();
-        res.json({ hf: r.ok, hf_status: data, gemini: Boolean(process.env.GEMINI_API_KEY), hf_url: hfUrl });
+        res.json({ hf: r.ok, hf_status: data, grok: Boolean(process.env.XAI_API_KEY), hf_url: hfUrl });
     } catch (e) {
-        res.json({ hf: false, hf_error: e.message, gemini: Boolean(process.env.GEMINI_API_KEY), hf_url: hfUrl });
+        res.json({ hf: false, hf_error: e.message, grok: Boolean(process.env.XAI_API_KEY), hf_url: hfUrl });
     }
 });
 

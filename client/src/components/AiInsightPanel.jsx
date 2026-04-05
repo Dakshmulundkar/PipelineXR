@@ -21,24 +21,23 @@ const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-lite' });`,
     },
     {
         match: /API_KEY_INVALID|api.?key.*invalid|invalid.*api.?key/i,
-        title: 'Invalid Gemini API key',
+        title: 'Invalid xAI API key',
         file: '.env / Railway environment variables',
-        location: 'GEMINI_API_KEY env var',
-        cause: 'The GEMINI_API_KEY value is missing, expired, or malformed.',
-        fix: 'Generate a new key at aistudio.google.com → API Keys and update the env var.',
+        location: 'XAI_API_KEY env var',
+        cause: 'The XAI_API_KEY value is missing, expired, or malformed.',
+        fix: 'Generate a new key at console.x.ai and update the env var.',
         code: `# .env
-GEMINI_API_KEY=AIza...your_new_key_here`,
+XAI_API_KEY=xai-...your_key_here`,
     },
     {
-        match: /HF.*not configured|HF_SPACE_URL/i,
-        title: 'Hugging Face Space not configured',
+        match: /xai.*not configured|XAI_API_KEY/i,
+        title: 'xAI Grok not configured',
         file: '.env / Railway environment variables',
-        location: 'HUGGINGFACE_LLM_URL env var',
-        cause: 'No HF Space URL is set so the primary LLM engine is skipped.',
-        fix: 'Deploy PipelineXR-LLM to HF Spaces and set the URL.',
+        location: 'XAI_API_KEY env var',
+        cause: 'No xAI API key is set so the Grok fallback is skipped.',
+        fix: 'Get a free API key at console.x.ai and set XAI_API_KEY.',
         code: `# Railway env vars
-HUGGINGFACE_LLM_URL=https://yourname-pipelinexr-llm.hf.space
-HUGGINGFACE_API_SECRET=your_secret`,
+XAI_API_KEY=xai-...your_key_here`,
     },
     {
         match: /fetch.*failed|ECONNREFUSED|ENOTFOUND|network/i,
@@ -236,7 +235,7 @@ const AiInsightPanel = ({ title = 'AI Analysis', onFetch, children }) => {
 
                     {source && (
                         <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 6, background: 'rgba(124,58,237,0.15)', color: '#A78BFA', fontWeight: 700 }}>
-                            {source === 'hf' ? 'Qwen-7B' : source === 'gemini' ? 'Gemini' : source === 'cache' ? 'cached' : 'static'}
+                            {source === 'hf' ? 'Qwen-7B' : source === 'grok' ? 'Grok' : source === 'cache' ? 'cached' : 'static'}
                         </span>
                     )}
                     {latency && <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)' }}>{latency > 60000 ? `${Math.round(latency/1000)}s` : `${latency}ms`}</span>}
