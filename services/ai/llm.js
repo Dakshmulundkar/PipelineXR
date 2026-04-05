@@ -6,25 +6,21 @@
  * Unified LLM client for PipelineXR.
  *
  * Primary:  Hugging Face Space (Qwen-7B)  — HF_SPACE_URL env var
- * Fallback: xAI Grok                      — XAI_API_KEY env var (OpenAI-compatible)
+ * Fallback: Google Gemini 2.0 Flash Lite  — GEMINI_API_KEY env var
  * Last:     Static templates              — always available
  *
  * All public methods return { ok, data, source, latency_ms }
  * Callers should never throw — errors are caught and fallback is used.
  */
 
+const { GoogleGenerativeAI } = require('@google/generative-ai');
+
 const HF_URL     = (process.env.HF_SPACE_URL || process.env.HUGGINGFACE_LLM_URL || '').replace(/\/$/, '');
 const HF_SECRET  = process.env.HF_SPACE_SECRET || process.env.HUGGINGFACE_API_SECRET || '';
-// CPU inference on HF Space takes 3-8 min per request — default timeout is 10 min
 const HF_TIMEOUT = parseInt(process.env.HF_TIMEOUT_MS || '600000', 10);
 
-// xAI Grok — OpenAI-compatible API, free tier available
-const XAI_API_KEY = process.env.XAI_API_KEY || '';
-const XAI_MODEL   = process.env.XAI_MODEL || 'grok-3-mini';
-const XAI_BASE    = 'https://api.x.ai/v1';
-
-if (!HF_URL && !XAI_API_KEY) {
-    console.warn('[LLM] Warning: No HF Space or xAI Grok configured — only static templates will work');
+if (!HF_URL && !process.env.GEMINI_API_KEY) {
+    console.warn('[LLM] Warning: No HF Space or Gemini configured — only static templates will work');
 }
 
 // Simple in-process cache: key → { data, ts }
@@ -49,7 +45,9 @@ function cacheSet(key, data) {
 // ── HF Space HTTP call ────────────────────────────────────────────────────────
 // Your HF Space returns: { ok: true, data: "<json string>" }
 // The "data" field is a JSON string that must be parsed by the caller.
-async function hfPost(endpoint, body, retries = 2) {
+// timeoutMs: per-call override — fast endpoints use 4s to fail-fast to Grok,
+//            security-review uses the full HF_TIMEOUT (up to 10 min).
+async function hfPost(endpoint, body, retries = 2, timeoutMs = HF_TIMEOUT) {
     if (!HF_URL) throw new Error('HF_SPACE_URL not configured');
 
     const headers = { 'Content-Type': 'application/json' };
@@ -57,7 +55,7 @@ async function hfPost(endpoint, body, retries = 2) {
 
     for (let attempt = 0; attempt <= retries; attempt++) {
         const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), HF_TIMEOUT);
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
         try {
             const res = await fetch(`${HF_URL}${endpoint}`, {
                 method: 'POST',
@@ -68,15 +66,12 @@ async function hfPost(endpoint, body, retries = 2) {
             clearTimeout(timer);
             if (!res.ok) {
                 const text = await res.text().catch(() => '');
-                // Don't retry on 4xx — auth/validation errors won't fix themselves
                 if (res.status >= 400 && res.status < 500) {
                     throw new Error(`HF Space ${res.status}: ${text.slice(0, 200)}`);
                 }
                 throw new Error(`HF Space ${res.status}: ${text.slice(0, 200)}`);
             }
             const json = await res.json();
-            // Space returns { ok: true, data: "<json string>" }
-            // Parse data string into object so callers get a plain object
             if (json.ok && typeof json.data === 'string') {
                 try { json.data = JSON.parse(json.data); } catch (_) { /* leave as string */ }
             }
@@ -93,60 +88,47 @@ async function hfPost(endpoint, body, retries = 2) {
     }
 }
 
-// ── xAI Grok fallback (OpenAI-compatible) ────────────────────────────────────
-// Track quota exhaustion — back off if we hit rate limits
-let _grokQuotaExhaustedUntil = 0;
+// ── Gemini fallback ───────────────────────────────────────────────────────────
+let _gemini = null;
+let _geminiQuotaExhaustedUntil = 0;
 
-function isQuotaError(err) {
+function isGeminiQuotaError(err) {
     const msg = err?.message || '';
-    return msg.includes('429') || msg.includes('quota') || msg.includes('rate limit') || msg.includes('RESOURCE_EXHAUSTED');
+    return msg.includes('429') || msg.includes('quota') || msg.includes('RESOURCE_EXHAUSTED');
 }
 
-async function grokGenerate(prompt) {
-    if (!XAI_API_KEY) throw new Error('xAI API key not configured');
-    if (Date.now() < _grokQuotaExhaustedUntil) {
-        const mins = Math.ceil((_grokQuotaExhaustedUntil - Date.now()) / 60000);
-        throw new Error(`Grok quota exhausted — backing off for ~${mins}m`);
+function getGemini() {
+    if (!process.env.GEMINI_API_KEY) return null;
+    if (Date.now() < _geminiQuotaExhaustedUntil) return null;
+    if (!_gemini) {
+        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+        // gemini-2.5-flash-lite: highest free tier quota (1000 RPD, 15 RPM) + newest generation
+        _gemini = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
     }
+    return _gemini;
+}
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 30000); // 30s timeout for Grok
-    try {
-        const res = await fetch(`${XAI_BASE}/chat/completions`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${XAI_API_KEY}`,
-            },
-            body: JSON.stringify({
-                model: XAI_MODEL,
-                messages: [{ role: 'user', content: prompt }],
-                max_tokens: 1024,
-                temperature: 0.3,
-            }),
-            signal: controller.signal,
-        });
-        clearTimeout(timer);
-
-        if (!res.ok) {
-            const text = await res.text().catch(() => '');
-            if (res.status === 429) {
-                const retryAfter = parseInt(res.headers.get('retry-after') || '60', 10);
-                _grokQuotaExhaustedUntil = Date.now() + Math.min(retryAfter * 1000 + 5000, 60 * 60 * 1000);
-                console.warn(`[LLM] Grok rate limited — backing off for ${retryAfter}s`);
-            }
-            throw new Error(`Grok API ${res.status}: ${text.slice(0, 200)}`);
+async function geminiGenerate(prompt) {
+    const m = getGemini();
+    if (!m) {
+        if (Date.now() < _geminiQuotaExhaustedUntil) {
+            const mins = Math.ceil((_geminiQuotaExhaustedUntil - Date.now()) / 60000);
+            throw new Error(`Gemini quota exhausted — backing off for ~${mins}m`);
         }
-
-        const json = await res.json();
-        const text = json.choices?.[0]?.message?.content || '';
-        if (!text) throw new Error('Grok returned empty response');
-        return text;
+        throw new Error('Gemini not configured');
+    }
+    try {
+        const result = await m.generateContent(prompt);
+        return (await result.response).text();
     } catch (err) {
-        clearTimeout(timer);
-        if (isQuotaError(err) && !err.message.includes('backing off')) {
-            _grokQuotaExhaustedUntil = Date.now() + 60 * 60 * 1000;
-            console.warn('[LLM] Grok quota error — backing off 1h');
+        if (isGeminiQuotaError(err)) {
+            const retryMatch = err.message.match(/retry[^0-9]*(\d+)(?:\.\d+)?s/i);
+            const retrySecs = retryMatch ? parseInt(retryMatch[1], 10) : null;
+            const backoffMs = retrySecs && retrySecs < 3600
+                ? retrySecs * 1000 + 5000
+                : 60 * 60 * 1000;
+            _geminiQuotaExhaustedUntil = Date.now() + backoffMs;
+            console.warn(`[LLM] Gemini quota exhausted — backing off for ${Math.ceil(backoffMs / 1000)}s`);
         }
         throw err;
     }
@@ -173,33 +155,33 @@ async function securityReview(repository, vulnerabilities, scanEngine = 'trivy')
 
     const t0 = Date.now();
 
-    // 1. Try HF Space
+    // 1. Try HF Space — full timeout, security review is worth waiting for
     if (HF_URL) {
         try {
-            const res = await hfPost('/security-review', { repository, vulnerabilities, scan_engine: scanEngine });
+            const res = await hfPost('/security-review', { repository, vulnerabilities, scan_engine: scanEngine }, 2, HF_TIMEOUT);
             if (res.ok) {
                 const out = { ok: true, data: res.data, source: 'hf', latency_ms: Date.now() - t0 };
                 cacheSet(cacheKey, out);
                 return out;
             }
         } catch (e) {
-            console.warn('[LLM] HF security-review failed, trying Grok:', e.message);
+            console.warn('[LLM] HF security-review failed, trying Gemini:', e.message);
         }
     }
 
-    // 2. Grok fallback
+    // 2. Gemini fallback
     try {
         const top = vulnerabilities.slice(0, 5).map(v =>
             `[${v.severity?.toUpperCase()}] ${v.cve_id || 'N/A'} in ${v.package_name}: ${(v.description || '').slice(0, 100)}`
         ).join('\n');
-        const text = await grokGenerate(
+        const text = await geminiGenerate(
             `You are a security analyst. Summarize these vulnerabilities and provide remediation steps:\n${top}\nRepository: ${repository}`
         );
-        const out = { ok: true, data: { risk_summary: text, source_model: 'grok' }, source: 'grok', latency_ms: Date.now() - t0 };
+        const out = { ok: true, data: { risk_summary: text, source_model: 'gemini' }, source: 'gemini', latency_ms: Date.now() - t0 };
         cacheSet(cacheKey, out);
         return out;
     } catch (e) {
-        console.warn('[LLM] Grok security-review failed:', e.message);
+        console.warn('[LLM] Gemini security-review failed:', e.message);
     }
 
     // 3. Static template
@@ -238,23 +220,24 @@ async function pipelineFailureEmail(runData, failedSteps = []) {
 
     if (HF_URL) {
         try {
-            const res = await hfPost('/pipeline-email', body);
+            // 4s timeout — pipeline emails are fire-and-forget, don't block on slow HF
+            const res = await hfPost('/pipeline-email', body, 0, 4000);
             if (res.ok) return { ok: true, data: res.data, source: 'hf', latency_ms: Date.now() - t0 };
         } catch (e) {
             console.warn('[LLM] HF pipeline-email failed:', e.message);
         }
     }
 
-    // Grok fallback
+    // Gemini fallback
     try {
         const prompt = `Write a professional pipeline failure notification email for:
 Repository: ${body.repository}, Workflow: ${body.workflow_name}, Branch: ${body.head_branch}
 Failed steps: ${failedSteps.join(', ') || 'unknown'}
 Include: subject line, executive summary, technical details, recommended actions.`;
-        const text = await grokGenerate(prompt);
-        return { ok: true, data: { subject: `[FAILED] ${body.workflow_name} on ${body.head_branch}`, body_text: text, urgency: 'high' }, source: 'grok', latency_ms: Date.now() - t0 };
+        const text = await geminiGenerate(prompt);
+        return { ok: true, data: { subject: `[FAILED] ${body.workflow_name} on ${body.head_branch}`, body_text: text, urgency: 'high' }, source: 'gemini', latency_ms: Date.now() - t0 };
     } catch (e) {
-        console.warn('[LLM] Grok pipeline-email failed:', e.message);
+        console.warn('[LLM] Gemini pipeline-email failed:', e.message);
     }
 
     // Static template
@@ -289,7 +272,8 @@ async function monitorAlertEmail(siteData, checkData = {}) {
 
     if (HF_URL) {
         try {
-            const res = await hfPost('/monitor-email', body);
+            // 4s timeout — monitor emails are time-sensitive alerts
+            const res = await hfPost('/monitor-email', body, 0, 4000);
             if (res.ok) return { ok: true, data: res.data, source: 'hf', latency_ms: Date.now() - t0 };
         } catch (e) {
             console.warn('[LLM] HF monitor-email failed:', e.message);
@@ -335,7 +319,8 @@ async function doraInsights(repository, metricsData, timeRange = '7d') {
 
     if (HF_URL) {
         try {
-            const res = await hfPost('/dora-insights', body);
+            // 4s timeout — DORA insights on Reports/Metrics should fail fast to Grok
+            const res = await hfPost('/dora-insights', body, 0, 4000);
             if (res.ok) {
                 const out = { ok: true, data: res.data, source: 'hf', latency_ms: Date.now() - t0 };
                 cacheSet(cacheKey, out);
@@ -346,17 +331,17 @@ async function doraInsights(repository, metricsData, timeRange = '7d') {
         }
     }
 
-    // Grok fallback
+    // Gemini fallback
     try {
         const prompt = `Analyze these DORA metrics for ${repository} (${timeRange}):
 Success rate: ${body.success_rate}%, Avg build: ${body.avg_build_duration}min, Deployments: ${body.total_deployments}
 Provide: performance grade (Elite/High/Medium/Low), 3 key insights, 2 recommendations.`;
-        const text = await grokGenerate(prompt);
-        const out = { ok: true, data: { executive_summary: text, source_model: 'grok' }, source: 'grok', latency_ms: Date.now() - t0 };
+        const text = await geminiGenerate(prompt);
+        const out = { ok: true, data: { executive_summary: text, source_model: 'gemini' }, source: 'gemini', latency_ms: Date.now() - t0 };
         cacheSet(cacheKey, out);
         return out;
     } catch (e) {
-        console.warn('[LLM] Grok dora-insights failed:', e.message);
+        console.warn('[LLM] Gemini dora-insights failed:', e.message);
     }
 
     // Static
@@ -384,6 +369,7 @@ async function incidentResponse(incident) {
 
     if (HF_URL) {
         try {
+            // 4s timeout — incident response needs to be fast
             const res = await hfPost('/incident-response', {
                 title:            incident.title || 'Unknown incident',
                 severity:         incident.severity || 'high',
@@ -391,7 +377,7 @@ async function incidentResponse(incident) {
                 symptoms:         incident.symptoms || [],
                 recent_changes:   incident.recent_changes || [],
                 error_logs:       incident.error_logs || [],
-            });
+            }, 0, 4000);
             if (res.ok) return { ok: true, data: res.data, source: 'hf', latency_ms: Date.now() - t0 };
         } catch (e) {
             console.warn('[LLM] HF incident-response failed:', e.message);

@@ -14,8 +14,8 @@ const NAV = [
     { label: 'Pipelines', to: '/pipelines', icon: GitBranch },
     { label: 'Security', to: '/security', icon: ShieldCheck },
     { label: 'Metrics', to: '/metrics', icon: BarChart2 },
-    { label: 'Reports', to: '/reports', icon: FileText },
     { label: 'Monitoring', to: '/monitoring', icon: Activity },
+    { label: 'Reports', to: '/reports', icon: FileText },
 ];
 
 // Generate stable session ID once per tab (outside component to avoid render-time side effects)

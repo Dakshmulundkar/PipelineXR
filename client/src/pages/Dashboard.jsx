@@ -155,10 +155,10 @@ const ActivityFeed = ({ runs, loading, socketConnected }) => {
                         <div key={i} style={{ padding: '11px 24px', display: 'flex', gap: 12, alignItems: 'flex-start', borderBottom: i < recent.length-1 ? '1px solid rgba(255,255,255,0.03)' : 'none', transition: 'background 0.15s' }} className="hover:bg-white/[0.02]">
                             <div style={{ width: 8, height: 8, borderRadius: '50%', background: dotColor, flexShrink: 0, marginTop: 4 }} />
                             <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                <div style={{ fontSize: 12, fontWeight: 600, color: run.head_commit_message ? '#fff' : 'rgba(255,255,255,0.4)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                     {run.head_commit_message
                                         ? run.head_commit_message.split('\n')[0].slice(0, 60)
-                                        : run.workflow_name || 'Workflow'}
+                                        : run.workflow_name || 'Workflow run'}
                                 </div>
                                 <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 2, display: 'flex', gap: 8, alignItems: 'center' }}>
                                     <GitBranch size={9} />
@@ -241,9 +241,9 @@ const SecurityCard = ({ secSummary, loading }) => {
 // ── Sites Status card ─────────────────────────────────────────────────────────
 const SitesCard = ({ sites, loading }) => {
     // Tick every 60s so "checked Xm ago" stays fresh without per-frame re-renders
-    const [, tick] = useState(0);
+    const [now, setNow] = useState(() => Date.now());
     useEffect(() => {
-        const id = setInterval(() => tick(t => t + 1), 60000);
+        const id = setInterval(() => setNow(Date.now()), 60000);
         return () => clearInterval(id);
     }, []);
 
@@ -252,10 +252,10 @@ const SitesCard = ({ sites, loading }) => {
         const statusColor = isUp ? '#34D399' : '#F87171';
         const hostname = (() => { try { return new URL(site.url).hostname; } catch { return site.url; } })();
         const minsAgo = site.last_checked
-            ? Math.round((Date.now() - new Date(site.last_checked)) / 60000)
+            ? Math.round((now - new Date(site.last_checked)) / 60000)
             : null;
         return { ...site, isUp, statusColor, hostname, minsAgo };
-    }) || [], [sites]);
+    }) || [], [sites, now]);
 
     return (
         <div style={{ background: 'rgba(28,28,30,0.4)', backdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 24, padding: 24, height: '100%', display: 'flex', flexDirection: 'column' }}>

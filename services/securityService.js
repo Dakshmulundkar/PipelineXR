@@ -21,7 +21,10 @@ class SecurityService {
                 else {
                     rows.forEach(row => {
                         const sev = row.severity.toLowerCase();
-                        if (stats[sev] !== undefined) { stats[sev] += row.count; stats.total += row.count; }
+                        if (stats[sev] !== undefined) {
+                            stats[sev] += parseInt(row.count, 10) || 0;
+                            stats.total += parseInt(row.count, 10) || 0;
+                        }
                     });
                 }
 

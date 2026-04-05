@@ -144,7 +144,6 @@ const Metrics = () => {
 
     const [metricsData, setMetricsData] = useState(null);
     const [prevMetricsData, setPrevMetricsData] = useState(null);
-    const [secSummary, setSecSummary] = useState(null);
     const controller = useRef(null);
 
     // Datadog connection state
@@ -440,10 +439,6 @@ const Metrics = () => {
                 cacheSet('metrics', selectedRepo, { metricsData: enrichedData, charts: newCharts, prevMetricsData: newPrevMetrics }, r);
             }
 
-            api.getSecuritySummary(selectedRepo || null)
-                .then(d => setSecSummary(d))
-                .catch(() => setSecSummary({ critical: 0, high: 0, medium: 0, low: 0, total: 0 }));
-
         } catch (e) {
             if (e.name !== 'AbortError') console.error(e);
         } finally { setLoading(false); }
@@ -485,12 +480,6 @@ const Metrics = () => {
             socket.off('METRICS_UPDATE', handleMetricsUpdate);
         };
     }, [socket, load, range]);
-
-    const calculateIntegrityScore = () => {
-        if (!secSummary) return 100;
-        const deductions = (secSummary.critical || 0) * 10 + (secSummary.high || 0) * 5 + (secSummary.medium || 0) * 2 + (secSummary.low || 0) * 0.5;
-        return Math.max(0, 100 - deductions).toFixed(1);
-    };
 
     // Calculate real trends comparing current vs previous period
     const durTrend = prevMetricsData ? calcTrend(metricsData?.avgBuildDuration ?? 0, prevMetricsData.avgBuildDuration) : null;

@@ -117,13 +117,21 @@ const DoraSection = ({ repo, timeRange }) => {
 const SecuritySection = ({ data, loading }) => {
 
     if (loading) return <div style={{ color: 'rgba(255,255,255,0.2)', fontSize: 13 }}>Loading security data...</div>;
-    if (!data || data.total === 0) return <div style={{ color: 'rgba(52,211,153,0.7)', fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}><CheckCircle2 size={14} /> No open vulnerabilities found.</div>;
+
+    // Defensively parse all counts — SQLite can return strings from COUNT(*)
+    const critical = parseInt(data?.critical, 10) || 0;
+    const high     = parseInt(data?.high,     10) || 0;
+    const medium   = parseInt(data?.medium,   10) || 0;
+    const low      = parseInt(data?.low,      10) || 0;
+    const total    = critical + high + medium + low; // recompute from parts, don't trust API total
+
+    if (!data || total === 0) return <div style={{ color: 'rgba(52,211,153,0.7)', fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}><CheckCircle2 size={14} /> No open vulnerabilities found.</div>;
 
     const sevs = [
-        { key: 'critical', label: 'Critical', count: data.critical || 0 },
-        { key: 'high',     label: 'High',     count: data.high     || 0 },
-        { key: 'medium',   label: 'Medium',   count: data.medium   || 0 },
-        { key: 'low',      label: 'Low',      count: data.low      || 0 },
+        { key: 'critical', label: 'Critical', count: critical },
+        { key: 'high',     label: 'High',     count: high     },
+        { key: 'medium',   label: 'Medium',   count: medium   },
+        { key: 'low',      label: 'Low',      count: low      },
     ];
 
     const barData = {
@@ -144,7 +152,7 @@ const SecuritySection = ({ data, loading }) => {
         },
     };
 
-    const posture = (data.critical || 0) > 0 ? 'critical' : (data.high || 0) > 0 ? 'at-risk' : 'secure';
+    const posture = critical > 0 ? 'critical' : high > 0 ? 'at-risk' : 'secure';
     const postureColor = posture === 'critical' ? '#F87171' : posture === 'at-risk' ? '#FBBF24' : '#34D399';
 
     return (
@@ -153,7 +161,7 @@ const SecuritySection = ({ data, loading }) => {
                 <div style={{ padding: '4px 12px', borderRadius: 8, background: `${postureColor}15`, border: `1px solid ${postureColor}40`, fontSize: 11, fontWeight: 800, color: postureColor, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                     {posture}
                 </div>
-                <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)' }}>{data.total} open vulnerabilities</span>
+                <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)' }}>{total} open vulnerabilities</span>
                 {data.lastScanned && <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.2)', marginLeft: 'auto' }}>Last scan: {new Date(data.lastScanned).toLocaleDateString()}</span>}
             </div>
             <div style={{ height: 100 }}>

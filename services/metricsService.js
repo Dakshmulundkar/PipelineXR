@@ -23,7 +23,9 @@ class MetricsService {
             const userFilter = userId ? 'AND user_id = ?' : '';
 
             const rawSql = `
-                SELECT run_started_at, created_at, updated_at, conclusion
+                SELECT run_started_at, created_at, updated_at, conclusion,
+                       workflow_name, head_branch, head_commit_message,
+                       run_number, triggering_actor, html_url
                 FROM workflow_runs
                 WHERE run_started_at >= NOW() - (? * INTERVAL '1 day')
                 ${repo ? 'AND repository = ?' : ''}

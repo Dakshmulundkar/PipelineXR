@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { GitBranch, PlayCircle, Clock, RefreshCw, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
-import { Activity, ShieldCheck, User, ExternalLink, TrendingUp, ChevronDown, ChevronUp, List } from 'lucide-react';
+import { Activity, ShieldCheck, User, ExternalLink, TrendingUp, ChevronDown, ChevronUp } from 'lucide-react';
 import { Bar } from 'react-chartjs-2';
 import {
     Chart as ChartJS, CategoryScale, LinearScale, BarElement,
@@ -217,25 +217,38 @@ const WorkflowTriggerDropdown = ({ selectedRepo, load }) => {
 const Pipelines = () => {
     const { selectedRepo, socket } = useAppContext();
     const [runs, setRuns] = useState([]);
+    const [stats, setStats] = useState(null); // total counts from DB — not limited to page
     const [expandedRun, setExpandedRun] = useState(null);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
+    const [loadingMore, setLoadingMore] = useState(false);
+    const [hasMore, setHasMore] = useState(false);
+    const PAGE = 20;
+    const PAGE_MORE = 30;
 
-    const load = async (force = false) => {
+    const loadStats = useCallback(async () => {
+        if (!selectedRepo) return;
+        try {
+            const s = await api.getPipelineStats(selectedRepo);
+            setStats(s);
+        } catch { /* non-fatal */ }
+    }, [selectedRepo]);
+
+    const load = useCallback(async (force = false) => {
         if (!selectedRepo) {
             setRuns([]);
             setLoading(false);
             setRefreshing(false);
             return;
         }
-        // Show cache immediately
         if (!force) {
             const cached = cacheGet('pipelines', selectedRepo);
             if (cached) {
                 setRuns(cached.data);
+                setHasMore(cached.data.length >= PAGE);
                 setLoading(false);
-                if (!cached.stale) return; // fresh — don't refetch
-                setRefreshing(true);       // stale — refresh silently
+                if (!cached.stale) return;
+                setRefreshing(true);
             } else {
                 setLoading(true);
             }
@@ -243,15 +256,32 @@ const Pipelines = () => {
             setRefreshing(true);
         }
         try {
-            const data = await api.getPipelineRuns(20, selectedRepo);
-            const runs = Array.isArray(data) ? data : [];
-            setRuns(runs);
-            cacheSet('pipelines', selectedRepo, runs);
+            const data = await api.getPipelineRuns(PAGE, selectedRepo);
+            const fetched = Array.isArray(data) ? data : [];
+            setRuns(fetched);
+            setHasMore(fetched.length >= PAGE);
+            cacheSet('pipelines', selectedRepo, fetched);
         } catch {
             setRuns([]);
+            setHasMore(false);
         } finally {
             setLoading(false);
             setRefreshing(false);
+        }
+    }, [selectedRepo]);
+
+    const loadMore = async () => {
+        if (loadingMore || !selectedRepo) return;
+        setLoadingMore(true);
+        try {
+            const data = await api.getPipelineRuns(runs.length + PAGE_MORE, selectedRepo);
+            const fetched = Array.isArray(data) ? data : [];
+            setRuns(fetched);
+            setHasMore(fetched.length > runs.length && fetched.length >= runs.length + PAGE_MORE);
+        } catch {
+            // keep existing runs
+        } finally {
+            setLoadingMore(false);
         }
     };
 
@@ -264,15 +294,16 @@ const Pipelines = () => {
             console.warn('Pipeline sync failed, loading from DB anyway:', e.message);
         }
         load(true);
+        loadStats();
     };
 
-    useEffect(() => { load(); }, [selectedRepo]); // eslint-disable-line
+    useEffect(() => { load(); loadStats(); }, [load, loadStats]);
 
     // 30s polling fallback
     useEffect(() => {
         const interval = setInterval(() => load(false), 30000);
         return () => clearInterval(interval);
-    }, [selectedRepo]); // eslint-disable-line
+    }, [load]);
 
     useEffect(() => {
         if (!socket) return;
@@ -285,10 +316,10 @@ const Pipelines = () => {
         return () => socket.off('github_webhook', handleWebhook);
     }, [socket, selectedRepo]); // eslint-disable-line
 
-    const total = runs.length;
-    const passed = runs.filter(r => r.conclusion === 'success').length;
-    const failed = runs.filter(r => r.conclusion === 'failure' || r.conclusion === 'timed_out' || r.conclusion === 'cancelled').length;
-    const rate = total > 0 ? Math.round((passed / total) * 100) : 0;
+    const total = stats?.total ?? runs.length;
+    const passed = stats?.passed ?? runs.filter(r => r.conclusion === 'success').length;
+    const failed = stats?.failed ?? runs.filter(r => r.conclusion === 'failure' || r.conclusion === 'timed_out' || r.conclusion === 'cancelled').length;
+    const rate = stats?.successRate ?? (total > 0 ? Math.round((passed / total) * 100) : 0);
 
     // Build a daily run history chart from the loaded runs
     const runHistoryChart = (() => {
@@ -523,6 +554,25 @@ const Pipelines = () => {
                     })
                 )}
             </div>
+
+            {/* Load more */}
+            {!loading && hasMore && (
+                <div style={{ display: 'flex', justifyContent: 'center', marginTop: 16 }}>
+                    <button
+                        onClick={loadMore}
+                        disabled={loadingMore}
+                        style={{
+                            background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
+                            color: 'rgba(255,255,255,0.6)', padding: '10px 24px', borderRadius: 12,
+                            fontSize: 13, fontWeight: 600, cursor: loadingMore ? 'not-allowed' : 'pointer',
+                            display: 'flex', alignItems: 'center', gap: 8, opacity: loadingMore ? 0.6 : 1,
+                        }}
+                    >
+                        {loadingMore ? <RefreshCw size={13} className="animate-spin" /> : <ChevronDown size={13} />}
+                        {loadingMore ? 'Loading...' : `Load more runs`}
+                    </button>
+                </div>
+            )}
         </div>
     );
 };
