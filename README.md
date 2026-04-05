@@ -180,7 +180,7 @@ All configuration is managed via environment variables. Copy `.env.example` to `
 | `DATADOG_APP_KEY` | ⚡ | Datadog Application key |
 | `DATADOG_SITE` | ⚡ | Datadog site region (e.g. `ap1.datadoghq.com`) |
 | `SMTP_USER` | ⚡ | Gmail address for uptime alert emails |
-| `SMTP_PASS` | ⚡ | Gmail App Password (not your account password) |
+| `SMTP_PASS` | ⚡ | Gmail App Password (not your account password) — generate at myaccount.google.com/apppasswords |
 
 > ⚡ Optional but recommended for full feature coverage.
 
@@ -298,6 +298,22 @@ docker-compose up         # Run full stack in Docker
 ---
 
 ## Changelog
+
+### v0.5.9
+- **Notifications** — bell icon in top nav opens a real-time dropdown showing pipeline pass/fail events and security scan completions with icons, timestamps, and click-to-navigate
+- **Pipelines page** — "Load more" no longer resets when the 30s polling interval fires; polling only refreshes stats when more than the initial 20 runs are loaded
+- **AI DORA Insights** — markdown output (`**bold**`, `### headers`, `* bullets`, `---` dividers) now renders properly instead of showing raw symbols
+- **Email** — switched from Resend to Gmail SMTP via Nodemailer; set `SMTP_USER` and `SMTP_PASS` (App Password) in Railway env vars
+- **DB connection** — increased Neon PostgreSQL connection timeout from 5s to 15s; DORA sync timeout returns 200 instead of 500
+
+### v0.5.8
+- **PDF report** — completely rewritten as clean white-theme document; adds executive summary scorecard, overall health score, DORA benchmark table with Elite/High/Medium/Low badges, test results section, pipeline workflow table, 20 recent builds
+- **Security numbers** — fixed SQLite `COUNT(*)` string concatenation bug producing numbers like `002080597`; `parseInt()` now applied on all severity counts
+- **Dashboard activity feed** — `getDoraMetrics` rawSql now selects `head_commit_message` so feed shows commit messages instead of "Workflow"
+- **Pipelines stats** — `getPipelineStats` now does a full `COUNT(*)` SQL query across all runs, not just the loaded page
+- **Pipelines pagination** — "Load more" button loads 30 additional runs at a time
+- **Sidebar order** — Monitoring moved above Reports
+- **LLM** — switched to `gemini-2.5-flash-lite` (1,000 req/day free tier, newest generation)
 
 ### v0.5.6
 - **Reports page** — added Test Results section (total tests, pass/fail counts, pass rate, per-workflow breakdown) wired to `/api/reports/tests`

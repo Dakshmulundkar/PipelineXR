@@ -13,7 +13,7 @@ const pool = new Pool({
     ssl: isLocal ? false : { rejectUnauthorized: true },
     max: 5,              // Neon free tier: 100 connection limit — keep headroom
     idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 5000,
+    connectionTimeoutMillis: 15000, // Neon cold start can take 10-12s
 });
 
 pool.on('error', (err) => {

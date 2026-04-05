@@ -171,6 +171,90 @@ const InfoChip = ({ icon: Icon, label, value, color }) => (
     </div>
 );
 
+// ── Simple markdown renderer ──────────────────────────────────────────────────
+// Handles: ### headers, **bold**, * bullet lists, --- dividers, blank lines
+function renderMarkdown(text) {
+    if (!text) return null;
+    const lines = text.split('\n');
+    const elements = [];
+    let i = 0;
+
+    while (i < lines.length) {
+        const line = lines[i];
+
+        // Skip empty lines
+        if (!line.trim()) { i++; continue; }
+
+        // Horizontal rule
+        if (/^---+$/.test(line.trim())) {
+            elements.push(<hr key={i} style={{ border: 'none', borderTop: '1px solid rgba(255,255,255,0.08)', margin: '8px 0' }} />);
+            i++; continue;
+        }
+
+        // ### Header
+        if (line.startsWith('### ')) {
+            elements.push(
+                <div key={i} style={{ fontSize: 11, fontWeight: 700, color: '#A78BFA', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 10, marginBottom: 4 }}>
+                    {line.replace(/^###\s*/, '')}
+                </div>
+            );
+            i++; continue;
+        }
+
+        // ## Header
+        if (line.startsWith('## ')) {
+            elements.push(
+                <div key={i} style={{ fontSize: 12, fontWeight: 700, color: '#fff', marginTop: 10, marginBottom: 4 }}>
+                    {line.replace(/^##\s*/, '')}
+                </div>
+            );
+            i++; continue;
+        }
+
+        // Bullet: * or - at start
+        if (/^\s*[*-]\s/.test(line)) {
+            const bulletLines = [];
+            while (i < lines.length && /^\s*[*-]\s/.test(lines[i])) {
+                bulletLines.push(lines[i].replace(/^\s*[*-]\s*/, ''));
+                i++;
+            }
+            elements.push(
+                <ul key={`ul-${i}`} style={{ margin: '4px 0', paddingLeft: 16, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                    {bulletLines.map((b, bi) => (
+                        <li key={bi} style={{ fontSize: 12, color: 'rgba(255,255,255,0.7)', lineHeight: 1.5 }}>
+                            {renderInline(b)}
+                        </li>
+                    ))}
+                </ul>
+            );
+            continue;
+        }
+
+        // Regular paragraph
+        elements.push(
+            <p key={i} style={{ fontSize: 13, color: 'rgba(255,255,255,0.75)', lineHeight: 1.6, margin: '2px 0' }}>
+                {renderInline(line)}
+            </p>
+        );
+        i++;
+    }
+    return elements;
+}
+
+// Render inline **bold** and *italic*
+function renderInline(text) {
+    const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*)/g);
+    return parts.map((part, i) => {
+        if (part.startsWith('**') && part.endsWith('**')) {
+            return <strong key={i} style={{ color: '#fff', fontWeight: 700 }}>{part.slice(2, -2)}</strong>;
+        }
+        if (part.startsWith('*') && part.endsWith('*')) {
+            return <em key={i} style={{ color: 'rgba(255,255,255,0.85)' }}>{part.slice(1, -1)}</em>;
+        }
+        return part;
+    });
+}
+
 // ── Main panel ────────────────────────────────────────────────────────────────
 const AiInsightPanel = ({ title = 'AI Analysis', onFetch, children }) => {
     const [state, setState]       = useState('idle');
@@ -309,9 +393,9 @@ const AiInsightPanel = ({ title = 'AI Analysis', onFetch, children }) => {
                     <div style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 14 }}>
 
                         {(data.risk_summary || data.executive_summary) && (
-                            <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.75)', lineHeight: 1.6, margin: 0 }}>
-                                {data.risk_summary || data.executive_summary}
-                            </p>
+                            <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.75)', lineHeight: 1.6 }}>
+                                {renderMarkdown(data.risk_summary || data.executive_summary)}
+                            </div>
                         )}
 
                         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>

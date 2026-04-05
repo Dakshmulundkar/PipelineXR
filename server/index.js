@@ -1471,6 +1471,11 @@ app.post('/api/metrics/dora/sync', expensiveLimiter, async (req, res) => {
     const result = await metricsService.syncWorkflowRunsFromGitHub(repository, days, userId);
     return res.json({ success: true, ...result });
   } catch (error) {
+    // Timeout or connection errors are non-fatal — client retries on next load
+    if (error.message?.includes('timeout') || error.message?.includes('connect')) {
+        console.warn('DORA sync warning (DB cold start):', error.message);
+        return res.json({ success: false, skipped: true, reason: 'DB connection timeout — will retry' });
+    }
     console.error('DORA sync error:', error);
     return res.status(500).json({ error: error.message });
   }

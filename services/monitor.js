@@ -5,22 +5,30 @@ const cron = require('node-cron');
 const crypto = require('crypto');
 const db = require('./database');
 
-// ── Email via Resend (free tier: 3000 emails/month) ───────────────────────────
-let resendClient = null;
-function getResend() {
-    if (resendClient) return resendClient;
-    if (!process.env.RESEND_API_KEY) return null;
-    const { Resend } = require('resend');
-    resendClient = new Resend(process.env.RESEND_API_KEY);
-    return resendClient;
+// ── Email via Gmail SMTP (nodemailer) ─────────────────────────────────────────
+let _transporter = null;
+function getTransporter() {
+    if (_transporter) return _transporter;
+    const user = process.env.SMTP_USER;
+    const pass = process.env.SMTP_PASS;
+    if (!user || !pass) return null;
+    const nodemailer = require('nodemailer');
+    _transporter = nodemailer.createTransport({
+        service: 'gmail',
+        auth: { user, pass },
+    });
+    return _transporter;
 }
 
 async function sendEmail(to, subject, html) {
-    const resend = getResend();
-    if (!resend || !to) return;
+    const transporter = getTransporter();
+    if (!transporter || !to) {
+        console.warn('[MONITOR] Email not configured — set SMTP_USER and SMTP_PASS in env vars');
+        return;
+    }
     try {
-        await resend.emails.send({
-            from: process.env.RESEND_FROM || 'PipelineXR <onboarding@resend.dev>',
+        await transporter.sendMail({
+            from: `PipelineXR <${process.env.SMTP_USER}>`,
             to,
             subject,
             html,
@@ -116,7 +124,7 @@ function startMonitor() {
  * The code is tied to (userId, email, url) and expires in 10 minutes.
  */
 async function sendVerificationCode(userId, email, url) {
-    if (!getResend()) throw new Error('Email sending is not configured. Set RESEND_API_KEY in your environment.');
+    if (!getTransporter()) throw new Error('Email sending is not configured. Set SMTP_USER and SMTP_PASS in your environment.');
 
     // Clean up any previous unused codes for this user+email+url
     await dbRun(

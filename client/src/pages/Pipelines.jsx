@@ -299,11 +299,19 @@ const Pipelines = () => {
 
     useEffect(() => { load(); loadStats(); }, [load, loadStats]);
 
-    // 30s polling fallback
+    // 30s polling fallback — only refresh if user hasn't loaded more than the initial page
+    // to avoid collapsing a larger loaded set back to PAGE
     useEffect(() => {
-        const interval = setInterval(() => load(false), 30000);
+        const interval = setInterval(() => {
+            // Don't reset if user has loaded more runs — just refresh stats silently
+            if (runs.length > PAGE) {
+                loadStats();
+            } else {
+                load(false);
+            }
+        }, 30000);
         return () => clearInterval(interval);
-    }, [load]);
+    }, [load, loadStats, runs.length]);
 
     useEffect(() => {
         if (!socket) return;

@@ -4,7 +4,8 @@ import { useAppContext } from '../contexts/AppContext';
 import {
     LayoutDashboard, GitBranch, ShieldCheck,
     BarChart2, FileText, Bell, Search, Settings,
-    ChevronRight, LogOut, Command, Activity
+    ChevronRight, LogOut, Command, Activity,
+    CheckCircle2, XCircle, AlertTriangle, Shield
 } from 'lucide-react';
 import SettingsPanel from './SettingsPanel';
 import { api } from '../services/api';
@@ -39,15 +40,68 @@ const Layout = ({ children }) => {
     const searchRef = useRef(null);
     const { user, repos, selectedRepo, setSelectedRepo, isAdmin, socket } = useAppContext();
     const [settingsOpen, setSettingsOpen] = useState(false);
-    const [notifCount, setNotifCount] = useState(0);
+    const [notifOpen, setNotifOpen] = useState(false);
+    const [notifications, setNotifications] = useState([]);
+    const [nowTick, setNowTick] = useState(() => Date.now());
+    const notifRef = useRef(null);
 
-    // Listen for real-time pipeline events and increment notification count
+    // Tick every 30s to refresh "X ago" timestamps
+    useEffect(() => {
+        const id = setInterval(() => setNowTick(Date.now()), 30000);
+        return () => clearInterval(id);
+    }, []);
+
+    const addNotif = (notif) => {
+        setNotifications(prev => [{ ...notif, id: Date.now(), ts: Date.now() }, ...prev].slice(0, 30));
+    };
+
+    // Listen for real-time pipeline events
     useEffect(() => {
         if (!socket) return;
-        const handler = () => setNotifCount(n => n + 1);
-        socket.on('pipeline_run_update', handler);
-        return () => socket.off('pipeline_run_update', handler);
+
+        const handlePipeline = (data) => {
+            if (!data.conclusion) return; // only completed runs
+            const isSuccess = data.conclusion === 'success';
+            addNotif({
+                type: isSuccess ? 'success' : 'failure',
+                icon: isSuccess ? 'check' : 'x',
+                title: isSuccess ? 'Pipeline passed' : 'Pipeline failed',
+                body: `${data.workflow_name || 'Workflow'} on ${data.head_branch || 'main'}`,
+                repo: data.repository,
+                link: '/pipelines',
+            });
+        };
+
+        const handleSecurity = (data) => {
+            if (data?.type === 'SCAN_COMPLETED') {
+                addNotif({
+                    type: 'security',
+                    icon: 'shield',
+                    title: 'Security scan completed',
+                    body: data.repository || 'Repository scanned',
+                    link: '/security',
+                });
+            }
+        };
+
+        socket.on('pipeline_run_update', handlePipeline);
+        socket.on('security_update', handleSecurity);
+        return () => {
+            socket.off('pipeline_run_update', handlePipeline);
+            socket.off('security_update', handleSecurity);
+        };
     }, [socket]);
+
+    const unreadCount = notifications.length;
+
+    // Close notif dropdown on outside click
+    useEffect(() => {
+        const handler = (e) => {
+            if (notifRef.current && !notifRef.current.contains(e.target)) setNotifOpen(false);
+        };
+        document.addEventListener('mousedown', handler);
+        return () => document.removeEventListener('mousedown', handler);
+    }, []);
 
     // Stable session ID for this browser tab
     const sessionId = useRef(getSessionId());
@@ -416,12 +470,80 @@ const Layout = ({ children }) => {
                             <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#34D399', boxShadow: '0 0 6px #34D399' }} />
                             SYSTEMS OPERATIONAL
                         </div>
-                        <div style={{ width: 32, height: 32, borderRadius: 10, background: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', position: 'relative' }}
-                            className="hover:bg-white/10"
-                            onClick={() => { setNotifCount(0); navigate('/pipelines'); }}>
-                            <Bell size={16} style={{ color: 'rgba(255,255,255,0.4)' }} />
-                            {notifCount > 0 && (
-                                <div style={{ position: 'absolute', top: 4, right: 4, width: 8, height: 8, borderRadius: '50%', background: '#F87171', border: '1.5px solid #000', fontSize: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }} />
+                        {/* Notification bell */}
+                        <div ref={notifRef} style={{ position: 'relative' }}>
+                            <div
+                                onClick={() => setNotifOpen(o => !o)}
+                                style={{ width: 32, height: 32, borderRadius: 10, background: notifOpen ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', position: 'relative' }}
+                                className="hover:bg-white/10"
+                            >
+                                <Bell size={16} style={{ color: unreadCount > 0 ? '#60A5FA' : 'rgba(255,255,255,0.4)' }} />
+                                {unreadCount > 0 && (
+                                    <div style={{ position: 'absolute', top: 4, right: 4, minWidth: 8, height: 8, borderRadius: 4, background: '#F87171', border: '1.5px solid #000', fontSize: 8, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 2px', color: '#fff' }}>
+                                        {unreadCount > 9 ? '9+' : unreadCount}
+                                    </div>
+                                )}
+                            </div>
+
+                            {notifOpen && (
+                                <div style={{ position: 'absolute', top: 'calc(100% + 10px)', right: 0, width: 340, background: 'rgba(14,14,18,0.98)', backdropFilter: 'blur(24px)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 16, boxShadow: '0 20px 60px rgba(0,0,0,0.7)', zIndex: 200, overflow: 'hidden' }}>
+                                    {/* Header */}
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                            <Bell size={14} style={{ color: '#60A5FA' }} />
+                                            <span style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>Notifications</span>
+                                            {unreadCount > 0 && (
+                                                <span style={{ fontSize: 10, fontWeight: 700, background: 'rgba(96,165,250,0.15)', color: '#60A5FA', padding: '1px 6px', borderRadius: 6 }}>{unreadCount}</span>
+                                            )}
+                                        </div>
+                                        <button onClick={() => setNotifications([])} style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px', borderRadius: 6 }}>
+                                            Clear all
+                                        </button>
+                                    </div>
+
+                                    {/* List */}
+                                    <div style={{ maxHeight: 360, overflowY: 'auto', scrollbarWidth: 'none' }}>
+                                        {notifications.length === 0 ? (
+                                            <div style={{ padding: '32px 16px', textAlign: 'center' }}>
+                                                <Bell size={28} style={{ color: 'rgba(255,255,255,0.1)', margin: '0 auto 10px', display: 'block' }} />
+                                                <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.3)' }}>No notifications yet</div>
+                                                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.15)', marginTop: 4 }}>Pipeline events will appear here in real-time</div>
+                                            </div>
+                                        ) : (
+                                            notifications.map((n) => {
+                                                const iconColor = n.type === 'success' ? '#34D399' : n.type === 'failure' ? '#F87171' : n.type === 'security' ? '#A78BFA' : '#FBBF24';
+                                                const IconComp = n.type === 'success' ? CheckCircle2 : n.type === 'failure' ? XCircle : n.type === 'security' ? Shield : AlertTriangle;
+                                                const diff = (nowTick - n.ts) / 1000;
+                                                const timeAgo = diff < 60 ? `${Math.round(diff)}s ago` : diff < 3600 ? `${Math.round(diff / 60)}m ago` : `${Math.round(diff / 3600)}h ago`;
+                                                return (
+                                                    <div key={n.id} onClick={() => { navigate(n.link || '/'); setNotifOpen(false); }}
+                                                        style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 16px', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.04)', transition: 'background 0.15s' }}
+                                                        className="hover:bg-white/[0.04]"
+                                                    >
+                                                        <div style={{ width: 30, height: 30, borderRadius: 8, background: `${iconColor}15`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>
+                                                            <IconComp size={14} style={{ color: iconColor }} />
+                                                        </div>
+                                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                                            <div style={{ fontSize: 12, fontWeight: 600, color: '#fff' }}>{n.title}</div>
+                                                            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.body}</div>
+                                                            {n.repo && <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.2)', marginTop: 2 }}>{n.repo}</div>}
+                                                        </div>
+                                                        <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.2)', flexShrink: 0, marginTop: 2 }}>{timeAgo}</div>
+                                                    </div>
+                                                );
+                                            })
+                                        )}
+                                    </div>
+
+                                    {/* Footer */}
+                                    {notifications.length > 0 && (
+                                        <div style={{ padding: '10px 16px', borderTop: '1px solid rgba(255,255,255,0.07)', display: 'flex', justifyContent: 'center' }}>
+                                            <button onClick={() => { navigate('/pipelines'); setNotifOpen(false); }} style={{ fontSize: 12, color: '#60A5FA', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}>
+                                                View all pipeline runs →
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
                             )}
                         </div>
                         <div
