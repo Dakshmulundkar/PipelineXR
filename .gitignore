@@ -46,6 +46,10 @@ trivy/
 # Reference folder (teammate's copy, local only)
 refrence/
 
+# Claude Code
+.claude/
+CLAUDE.md
+
 # Trivy CLI binary (installed via `npm run install:trivy`)
 bin/
 

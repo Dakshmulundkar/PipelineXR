@@ -8,6 +8,7 @@ import Pipelines from './pages/Pipelines';
 import Metrics from './pages/Metrics';
 import Reports from './pages/Reports';
 import Monitoring from './pages/Monitoring';
+import LandingPage from './pages/LandingPage';
 import Login from './pages/Login';
 import AuthCallback from './pages/AuthCallback';
 import { AppProvider } from './contexts/AppContext';
@@ -66,16 +67,18 @@ function App() {
             <div className="relative z-10 h-screen w-full" style={{ fontFamily: "'-apple-system', 'BlinkMacSystemFont', 'SF Pro Text', 'Segoe UI', 'Roboto', sans-serif" }}>
                 <AppProvider isAuthenticated={isAuthenticated}>
                     <Routes>
-                        {/* Public */}
+                        {/* Public - accessible without auth */}
+                        <Route path="/" element={isAuthenticated ? <KeepAliveRoutes isAuthenticated={isAuthenticated} /> : <LandingPage />} />
+                        <Route path="/landing" element={<LandingPage />} />
                         <Route path="/login" element={isAuthenticated ? <Navigate to="/" replace /> : <Login />} />
                         <Route path="/auth/callback" element={<AuthCallback onLogin={() => setIsAuthenticated(true)} />} />
 
                         {/* All protected pages — kept alive, toggled by CSS */}
-                        <Route path="/*" element={
-                            isAuthenticated
-                                ? <KeepAliveRoutes isAuthenticated={isAuthenticated} />
-                                : <Navigate to="/login" replace />
-                        } />
+                        <Route path="/pipelines" element={isAuthenticated ? <KeepAliveRoutes isAuthenticated={isAuthenticated} /> : <Navigate to="/landing" replace />} />
+                        <Route path="/security" element={isAuthenticated ? <KeepAliveRoutes isAuthenticated={isAuthenticated} /> : <Navigate to="/landing" replace />} />
+                        <Route path="/metrics" element={isAuthenticated ? <KeepAliveRoutes isAuthenticated={isAuthenticated} /> : <Navigate to="/landing" replace />} />
+                        <Route path="/reports" element={isAuthenticated ? <KeepAliveRoutes isAuthenticated={isAuthenticated} /> : <Navigate to="/landing" replace />} />
+                        <Route path="/monitoring" element={isAuthenticated ? <KeepAliveRoutes isAuthenticated={isAuthenticated} /> : <Navigate to="/landing" replace />} />
                     </Routes>
                 </AppProvider>
             </div>
