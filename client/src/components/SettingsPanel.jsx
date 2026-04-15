@@ -412,7 +412,13 @@ const SettingsPanel = ({ open, onClose }) => {
                                 <span style={{ marginLeft: 'auto', fontSize: 10, fontWeight: 700, color: '#34D399', background: 'rgba(52,211,153,0.1)', padding: '2px 8px', borderRadius: 6 }}>ACTIVE</span>
                             </div>
                             <button
-                                onClick={() => { window.location.href = '/auth/logout'; }}
+                                onClick={() => {
+                                    localStorage.removeItem('sf_auth');
+                                    localStorage.removeItem('pxr_user');
+                                    localStorage.removeItem('gh_token');
+                                    fetch(`${import.meta.env.VITE_API_BASE_URL || ''}/auth/logout`, { credentials: 'include' }).catch(() => {});
+                                    window.location.href = '/';
+                                }}
                                 style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', background: 'rgba(248,113,113,0.06)', border: '1px solid rgba(248,113,113,0.15)', borderRadius: 12, color: '#F87171', fontSize: 13, fontWeight: 600, cursor: 'pointer', width: '100%' }}
                             >
                                 <LogOut size={14} /> Sign out

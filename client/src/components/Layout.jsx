@@ -549,7 +549,10 @@ const Layout = ({ children }) => {
                         <div
                             onClick={() => {
                                 localStorage.removeItem('sf_auth');
-                                window.location.href = '/auth/logout';
+                                localStorage.removeItem('pxr_user');
+                                localStorage.removeItem('gh_token');
+                                fetch(`${import.meta.env.VITE_API_BASE_URL || ''}/auth/logout`, { credentials: 'include' }).catch(() => {});
+                                window.location.href = '/';
                             }}
                             style={{ width: 32, height: 32, borderRadius: 10, background: 'rgba(248, 113, 113, 0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
                             className="hover:bg-rose-500/10 group"

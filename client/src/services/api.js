@@ -28,7 +28,9 @@ export const api = {
         localStorage.removeItem('sf_auth');
         localStorage.removeItem('pxr_user');
         localStorage.removeItem('gh_token');
-        window.location.href = `${API_ORIGIN}/auth/logout`;
+        // Fire-and-forget session cleanup on Railway — don't redirect through it
+        fetch(`${API_ORIGIN}/auth/logout`, { credentials: 'include' }).catch(() => {});
+        window.location.href = '/';
     },
     checkAuth: () => get(`${API_ORIGIN}/auth/user`),
 

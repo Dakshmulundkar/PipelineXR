@@ -96,6 +96,22 @@ export const AppProvider = ({ children, isAuthenticated }) => {
             } catch { /* ignore */ }
         }
 
+        // Re-verify admin status from server — localStorage may be stale
+        api.checkAuth().then(data => {
+            if (data?.user) {
+                setUser(prev => ({ ...prev, ...data.user }));
+                setIsAdmin(data.isAdmin === true);
+                // Update localStorage with fresh isAdmin value
+                const stored2 = localStorage.getItem('pxr_user');
+                if (stored2) {
+                    try {
+                        const u2 = JSON.parse(stored2);
+                        localStorage.setItem('pxr_user', JSON.stringify({ ...u2, isAdmin: data.isAdmin === true }));
+                    } catch { /* ignore */ }
+                }
+            }
+        }).catch(() => {});
+
         // Fetch repos — uses gh_token via x-github-token header interceptor
         api.getRepos().then(data => {
             if (Array.isArray(data)) {
