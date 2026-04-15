@@ -76,7 +76,7 @@ const storyBlocks = [
     body:
       'Live status, incident signals, and recovery visibility help the product team react faster when something changes.',
     icon: Activity,
-    accent: '#A78BFA',
+    accent: '#3B82F6',
     points: ['Faster feedback', 'Production awareness', 'Continuous release confidence'],
     preview: 'monitoring',
   },
@@ -86,29 +86,9 @@ const workflow = [
   { label: 'Commit', icon: GitBranch, accent: '#60A5FA' },
   { label: 'Verify', icon: CheckCircle2, accent: '#34D399' },
   { label: 'Protect', icon: Lock, accent: '#FBBF24' },
-  { label: 'Observe', icon: Radar, accent: '#A78BFA' },
+  { label: 'Observe', icon: Radar, accent: '#3B82F6' },
 ];
 
-const featureSteps = [
-  {
-    title: 'Continuous integration.',
-    body: 'Merge code changes with immediate visibility into build activity, release quality, and delivery momentum.',
-    icon: GitBranch,
-    accent: '#60A5FA',
-  },
-  {
-    title: 'Automated testing.',
-    body: 'Run verification automatically so teams catch regressions early and move through the pipeline with more confidence.',
-    icon: TestTube2,
-    accent: '#34D399',
-  },
-  {
-    title: 'Continuous deployment.',
-    body: 'Ship to staging or production through one disciplined release flow without fragmented tooling or manual handoffs.',
-    icon: Rocket,
-    accent: '#FBBF24',
-  },
-];
 
 const featureCardsPrimary = [
   {
@@ -127,18 +107,18 @@ const featureCardsPrimary = [
     title: 'Custom notifications',
     body: 'Keep teams informed with lightweight event updates for pipeline changes, failures, recoveries, and releases.',
     icon: Bell,
-    accent: '#A78BFA',
+    accent: '#3B82F6',
   },
 ];
 
 const featureCardsExtended = [
   { title: 'Unified dashboard', body: 'Track projects, environments, and release health from one clear operating view.', icon: BarChart3, accent: '#60A5FA' },
   { title: 'Fast onboarding', body: 'Connect repositories and start seeing delivery signals quickly instead of building dashboards from scratch.', icon: Rocket, accent: '#FBBF24' },
-  { title: 'Role control', body: 'Give engineers, leads, and operators the visibility they need without exposing everything to everyone.', icon: Users, accent: '#A78BFA' },
+  { title: 'Role control', body: 'Give engineers, leads, and operators the visibility they need without exposing everything to everyone.', icon: Users, accent: '#3B82F6' },
   { title: 'Real analytics', body: 'Understand build times, stability, release velocity, and delivery trends in a cleaner reporting layer.', icon: Activity, accent: '#34D399' },
   { title: 'GitOps ready', body: 'Fit naturally into source-controlled infrastructure and modern release workflows.', icon: GitBranch, accent: '#60A5FA' },
   { title: 'CLI support', body: 'Extend operational workflows with automation hooks and scripting-friendly controls.', icon: Code2, accent: '#FBBF24' },
-  { title: 'Extensible plugins', body: 'Adapt the platform with custom integrations and workflow extensions where your team needs them.', icon: Plug, accent: '#A78BFA' },
+  { title: 'Extensible plugins', body: 'Adapt the platform with custom integrations and workflow extensions where your team needs them.', icon: Plug, accent: '#3B82F6' },
   { title: 'Instant alerts', body: 'React faster when builds fail, environments drift, or production signals change.', icon: Zap, accent: '#34D399' },
 ];
 
@@ -171,19 +151,19 @@ const howItWorksCards = [
     title: 'Instant monitoring',
     body: 'Track pipeline state, production health, and change impact without leaving the workspace.',
     icon: Radar,
-    accent: '#60A5FA',
+    accent: '#3B82F6',
   },
   {
     title: 'Secure by design',
     body: 'Security posture becomes part of how releases are understood, not an isolated afterthought.',
     icon: ShieldCheck,
-    accent: '#34D399',
+    accent: '#10B981',
   },
   {
     title: 'Seamless rollbacks',
     body: 'When something shifts in production, teams can respond with context and confidence.',
     icon: Zap,
-    accent: '#A78BFA',
+    accent: '#3B82F6',
   },
 ];
 
@@ -212,24 +192,24 @@ const pricingTiers = [
   {
     name: 'Starter',
     price: 'Free',
-    description: 'For smaller teams setting up release visibility and workflow automation.',
+    description: 'For individual developers and small teams getting started with CI/CD observability.',
     accent: '#60A5FA',
-    points: ['Core pipeline visibility', 'Basic monitoring', 'Essential alerts'],
+    points: ['Up to 3 repositories', 'Core pipeline visibility', 'Basic monitoring', '7-day log retention'],
   },
   {
-    name: 'Growth',
-    price: 'Custom',
-    description: 'For teams that need richer analytics, stronger controls, and a more complete delivery layer.',
+    name: 'Pro',
+    price: '₹1,499/mo',
+    description: 'For growing teams that need advanced analytics, security scanning, and collaboration features.',
     accent: '#34D399',
-    points: ['Advanced analytics', 'Security posture workflows', 'Team collaboration controls'],
+    points: ['Unlimited repositories', 'Advanced DORA metrics', 'Security vulnerability scanning', 'Team collaboration', '30-day log retention'],
     featured: true,
   },
   {
     name: 'Enterprise',
-    price: 'Contact',
-    description: 'For organizations standardizing release intelligence across multiple teams and environments.',
-    accent: '#A78BFA',
-    points: ['Governance and access control', 'Workflow customization', 'Deployment visibility at scale'],
+    price: 'Custom',
+    description: 'For organizations requiring custom SLA, dedicated support, and enterprise-grade governance.',
+    accent: '#3B82F6',
+    points: ['Everything in Pro', 'Dedicated account manager', 'Custom SLA guarantee', 'SSO & advanced RBAC', 'Unlimited log retention'],
   },
 ];
 
@@ -251,7 +231,7 @@ const faqs = [
 const demoMetricCharts = [
   { title: 'Build Efficiency', color: '#60A5FA', values: [36, 52, 44, 66, 58, 82, 73], unit: 'm' },
   { title: 'Mission Success', color: '#34D399', values: [88, 91, 90, 94, 95, 98, 97], unit: '%' },
-  { title: 'Deploy Frequency', color: '#A78BFA', values: [3, 5, 4, 6, 5, 7, 6], unit: '' },
+  { title: 'Deploy Frequency', color: '#3B82F6', values: [3, 5, 4, 6, 5, 7, 6], unit: '' },
   { title: 'Failure Rate', color: '#F87171', values: [12, 10, 11, 8, 7, 4, 5], unit: '%' },
 ];
 
@@ -264,7 +244,7 @@ const demoSecuritySummary = [
 
 const demoScanners = [
   { name: 'Trivy Scanner', findings: 14, color: '#F87171', status: 'Action needed' },
-  { name: 'Snyk SAST', findings: 9, color: '#A78BFA', status: 'Review' },
+  { name: 'Snyk SAST', findings: 9, color: '#3B82F6', status: 'Review' },
   { name: 'GitHub Adv', findings: 0, color: '#34D399', status: 'Passed' },
 ];
 
@@ -288,7 +268,7 @@ const cinematicChapters = [
   {
     title: 'Response',
     body: 'Once code reaches production, monitoring closes the loop with live operational context.',
-    accent: '#A78BFA',
+    accent: '#3B82F6',
   },
 ];
 
@@ -297,71 +277,109 @@ function CinematicScrollSection({ scrollContainerRef }) {
   const { scrollYProgress } = useScroll({
     container: scrollContainerRef,
     target: ref,
-    offset: ['start start', 'end end'],
+    offset: ['start end', 'end start'],
   });
 
-  const firstY = useTransform(scrollYProgress, [0, 0.3, 0.6], [120, 0, -50]);
-  const secondY = useTransform(scrollYProgress, [0.15, 0.5, 0.8], [120, 0, -40]);
-  const thirdY = useTransform(scrollYProgress, [0.35, 0.7, 1], [120, 0, -30]);
-
-  const firstOpacity = useTransform(scrollYProgress, [0, 0.15, 0.45], [0.15, 1, 0.9]);
-  const secondOpacity = useTransform(scrollYProgress, [0.15, 0.35, 0.7], [0.12, 1, 0.9]);
-  const thirdOpacity = useTransform(scrollYProgress, [0.35, 0.55, 0.9], [0.12, 1, 1]);
-
-  const transforms = [
-    { y: firstY, opacity: firstOpacity, rotate: -4 },
-    { y: secondY, opacity: secondOpacity, rotate: 0 },
-    { y: thirdY, opacity: thirdOpacity, rotate: 4 },
-  ];
+  const previewY = useTransform(scrollYProgress, [0, 0.4, 0.8, 1], [60, 0, -20, -40]);
+  const previewOpacity = useTransform(scrollYProgress, [0, 0.15, 0.6, 1], [0.2, 1, 1, 0.6]);
+  const previewScale = useTransform(scrollYProgress, [0, 0.2, 0.7, 1], [0.95, 1, 1, 0.97]);
 
   return (
-    <section ref={ref} className="relative h-[180vh] py-10 md:h-[210vh]">
-      <div className="sticky top-20 px-0">
-        <div style={shell} className="grid gap-10 lg:grid-cols-[0.82fr_1.18fr] lg:items-center">
-          <motion.div
-            initial={{ opacity: 0, y: 24 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, amount: 0.5 }}
-            transition={{ duration: 0.75, ease: sectionEase }}
+    <section ref={ref} className="relative py-16 md:py-24">
+      <motion.div style={{ ...shell, y: previewY, opacity: previewOpacity, scale: previewScale }} className="grid gap-10 lg:grid-cols-[0.82fr_1.18fr] lg:items-center">
+        <motion.div
+          initial={{ opacity: 0, y: 24 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, amount: 0.5 }}
+          transition={{ duration: 0.75, ease: sectionEase }}
+        >
+          <div
+            className="inline-flex items-center gap-2 rounded-full px-3 py-1.5"
+            style={{
+              background: 'rgba(255,255,255,0.04)',
+              border: '1px solid rgba(255,255,255,0.07)',
+              color: 'rgba(255,255,255,0.74)',
+            }}
           >
-            <div
-              className="inline-flex items-center gap-2 rounded-full px-3 py-1.5"
-              style={{
-                background: 'rgba(255,255,255,0.04)',
-                border: '1px solid rgba(255,255,255,0.07)',
-                color: 'rgba(255,255,255,0.74)',
-              }}
-            >
-              <GitBranch className="h-3.5 w-3.5" />
-              <span className="text-[11px] font-semibold uppercase tracking-[0.16em]">Pipelines</span>
-            </div>
-            <h2 className="mt-5 max-w-xl text-3xl font-semibold tracking-[-0.05em] text-white md:text-5xl">
-              Watch delivery move from run to run.
-            </h2>
-            <p className="mt-5 max-w-xl text-base leading-8" style={{ color: textMuted }}>
-              A compact Pipelines page preview shows run history, execution health, and current status in the same style as the real product.
-            </p>
-          </motion.div>
+            <GitBranch className="h-3.5 w-3.5" />
+            <span className="text-[11px] font-semibold uppercase tracking-[0.16em]">Pipelines</span>
+          </div>
+          <h2 className="mt-5 max-w-xl text-3xl font-semibold tracking-[-0.05em] text-white md:text-5xl">
+            Watch delivery move from run to run.
+          </h2>
+          <p className="mt-5 max-w-xl text-base leading-8" style={{ color: textMuted }}>
+            A compact Pipelines page preview shows run history, execution health, and current status in the same style as the real product.
+          </p>
 
-          <div className="relative h-[520px] md:h-[560px]">
+          <div className="mt-10 space-y-6">
             {cinematicChapters.map((chapter, index) => (
               <motion.div
                 key={chapter.title}
-                style={{
-                  y: transforms[index].y,
-                  opacity: transforms[index].opacity,
-                  rotate: transforms[index].rotate,
-                }}
-                className="absolute inset-x-0 mx-auto w-full max-w-[680px]"
+                initial={{ opacity: 0, x: -16 }}
+                whileInView={{ opacity: 1, x: 0 }}
+                viewport={{ once: true, amount: 0.5 }}
+                transition={{ duration: 0.6, delay: index * 0.12, ease: sectionEase }}
+                className="flex items-start gap-4"
               >
-                <div style={{ marginTop: `${index * 48}px` }}>
-                  <MiniPipelinesPreview />
+                <div
+                  className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-xs font-bold"
+                  style={{
+                    background: `${chapter.accent}18`,
+                    border: `1px solid ${chapter.accent}30`,
+                    color: chapter.accent,
+                  }}
+                >
+                  {index + 1}
+                </div>
+                <div>
+                  <div className="text-sm font-semibold text-white">{chapter.title}</div>
+                  <div className="mt-1 text-sm leading-6" style={{ color: 'rgba(255,255,255,0.48)' }}>
+                    {chapter.body}
+                  </div>
                 </div>
               </motion.div>
             ))}
           </div>
-        </div>
-      </div>
+        </motion.div>
+
+        <motion.div
+          whileHover={{ y: -6 }}
+          transition={{ duration: 0.28, ease: sectionEase }}
+        >
+          <div
+            className="relative overflow-hidden rounded-[32px] p-5 md:p-6"
+            style={{
+              background: 'linear-gradient(180deg, rgba(18,20,27,0.92) 0%, rgba(10,11,16,0.92) 100%)',
+              border: '1px solid rgba(255,255,255,0.08)',
+              boxShadow: '0 24px 90px rgba(0,0,0,0.3)',
+            }}
+          >
+            <div
+              className="absolute inset-x-0 top-0 h-px"
+              style={{
+                background: 'linear-gradient(90deg, transparent, #60A5FA55, transparent)',
+              }}
+            />
+            <div className="mb-5 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="h-2.5 w-2.5 rounded-full bg-[#FF5F57]" />
+                <span className="h-2.5 w-2.5 rounded-full bg-[#FFBD2E]" />
+                <span className="h-2.5 w-2.5 rounded-full bg-[#28C840]" />
+              </div>
+              <div
+                className="rounded-full px-3 py-1 text-[11px] font-medium"
+                style={{
+                  background: 'rgba(255,255,255,0.04)',
+                  color: 'rgba(255,255,255,0.34)',
+                }}
+              >
+                PipelineXR workspace
+              </div>
+            </div>
+            <MiniPipelinesPreview />
+          </div>
+        </motion.div>
+      </motion.div>
     </section>
   );
 }
@@ -832,7 +850,7 @@ function MiniMonitoringPreview() {
         {[
           { label: 'Uptime', value: '99.9%', accent: '#34D399' },
           { label: 'MTTR', value: '12m', accent: '#60A5FA' },
-          { label: 'Incidents', value: '2', accent: '#A78BFA' },
+          { label: 'Incidents', value: '2', accent: '#3B82F6' },
         ].map((item) => (
           <div
             key={item.label}
@@ -901,7 +919,7 @@ function MiniMonitoringPreview() {
                 style={{
                   background:
                     index === 6
-                      ? 'linear-gradient(180deg, #A78BFA 0%, rgba(255,255,255,0.2) 100%)'
+                      ? 'linear-gradient(180deg, #3B82F6 0%, rgba(255,255,255,0.2) 100%)'
                       : 'linear-gradient(180deg, rgba(255,255,255,0.24) 0%, rgba(255,255,255,0.08) 100%)',
                 }}
               />
@@ -1034,8 +1052,6 @@ const LandingPage = () => {
   const [openFaq, setOpenFaq] = useState(0);
   const { scrollYProgress } = useScroll({
     container: pageRef,
-    target: pageRef,
-    offset: ['start start', 'end end'],
   });
 
   const heroY = useTransform(scrollYProgress, [0, 0.3], [0, -70]);
@@ -1059,7 +1075,7 @@ const LandingPage = () => {
         className="fixed left-0 right-0 top-0 z-50 h-[2px] origin-left"
         style={{
           scaleX: progressScale,
-          background: 'linear-gradient(90deg, #60A5FA 0%, #A78BFA 50%, #34D399 100%)',
+          background: 'linear-gradient(90deg, #60A5FA 0%, #3B82F6 50%, #34D399 100%)',
         }}
       />
 
@@ -1116,7 +1132,7 @@ const LandingPage = () => {
               <div
                 className="flex h-10 w-10 items-center justify-center rounded-2xl text-[11px] font-black text-white"
                 style={{
-                  background: 'linear-gradient(135deg, #3B82F6 0%, #7C3AED 100%)',
+                  background: 'linear-gradient(135deg, #3B82F6 0%, #2563EB 100%)',
                   boxShadow: '0 0 24px rgba(59,130,246,0.28)',
                 }}
               >
@@ -1131,10 +1147,20 @@ const LandingPage = () => {
             </div>
 
             <div className="hidden items-center gap-8 md:flex">
-              {['Pipelines', 'Security', 'Monitoring'].map((item) => (
-                <span key={item} className="text-sm font-medium" style={{ color: 'rgba(255,255,255,0.4)' }}>
+              {['Home', 'Features', 'How It Works'].map((item) => (
+                <a
+                  key={item}
+                  href={`#${item.toLowerCase().replace(/\s+/g, '-')}`}
+                  className="text-sm font-medium transition-colors hover:text-white"
+                  style={{ color: 'rgba(255,255,255,0.4)' }}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    const section = document.getElementById(item.toLowerCase().replace(/\s+/g, '-'));
+                    if (section) section.scrollIntoView({ behavior: 'smooth' });
+                  }}
+                >
                   {item}
-                </span>
+                </a>
               ))}
             </div>
 
@@ -1156,7 +1182,7 @@ const LandingPage = () => {
           </div>
         </header>
 
-        <main className="px-5 pb-20 pt-10 sm:px-6 md:px-8 md:pb-28 md:pt-16 xl:px-10">
+        <main className="px-5 pt-10 sm:px-6 md:px-8 md:pt-16 xl:px-10">
           <MotionDiv
             style={{ ...shell, y: heroY, opacity: heroOpacity }}
             className="grid min-h-[calc(100vh-8rem)] items-center gap-12 pt-6 md:pt-10 lg:grid-cols-[1.05fr_0.95fr]"
@@ -1174,7 +1200,7 @@ const LandingPage = () => {
                 }}
               >
                 <Sparkles className="h-3.5 w-3.5" />
-                <span className="text-[11px] font-semibold uppercase tracking-[0.16em]">Scroll to feel the product</span>
+                <span className="text-[11px] font-semibold uppercase tracking-[0.16em]">DevSecOps Observability</span>
               </MotionDiv>
 
               <MotionDiv
@@ -1184,9 +1210,9 @@ const LandingPage = () => {
                 className="mt-6 max-w-4xl text-[3rem] font-semibold tracking-[-0.07em] text-white sm:text-[3.8rem] md:text-[5rem] lg:text-[5.7rem]"
                 style={{ lineHeight: 0.94 }}
               >
-                The story of your releases,
+                Complete CI/CD visibility,
                 <span className="block" style={{ color: '#E6EEFF', textShadow: '0 0 34px rgba(96,165,250,0.16)' }}>
-                  told as one system.
+                  from commit to production.
                 </span>
               </MotionDiv>
 
@@ -1197,8 +1223,7 @@ const LandingPage = () => {
                 className="mt-6 max-w-2xl text-base leading-8 md:text-lg"
                 style={{ color: 'rgba(255,255,255,0.52)' }}
               >
-                PipelineXR helps teams understand what shipped, what changed, what is at risk, and what needs attention next.
-                As you scroll, the product story unfolds the same way the platform works.
+                PipelineXR provides real-time pipeline monitoring, DORA metrics, security scanning, and uptime tracking—all in one unified dashboard for engineering teams.
               </MotionDiv>
 
               <MotionDiv
@@ -1360,12 +1385,14 @@ const LandingPage = () => {
           </section>
 
           {storyBlocks.map((block, index) => (
-            <StoryCard key={block.title} block={block} index={index} scrollContainerRef={pageRef} />
+            index === 0
+              ? <div id="features"><StoryCard key={block.title} block={block} index={index} scrollContainerRef={pageRef} /></div>
+              : <StoryCard key={block.title} block={block} index={index} scrollContainerRef={pageRef} />
           ))}
 
           <CinematicScrollSection scrollContainerRef={pageRef} />
 
-          <section className="py-16 md:py-24">
+          <section id="how-it-works" className="py-16 md:py-24">
             <div style={shell}>
               <motion.div
                 initial={{ opacity: 0, y: 28 }}
@@ -1375,102 +1402,111 @@ const LandingPage = () => {
                 className="text-center"
               >
                 <div
-                  className="inline-flex items-center gap-2 rounded-full px-3 py-1.5"
+                  className="mx-auto inline-flex items-center gap-2 rounded-full px-3 py-1.5"
                   style={{
-                    background: 'rgba(59,130,246,0.10)',
-                    border: '1px solid rgba(96,165,250,0.18)',
-                    color: '#93C5FD',
+                    background: 'rgba(255,255,255,0.04)',
+                    border: '1px solid rgba(255,255,255,0.07)',
+                    color: 'rgba(255,255,255,0.74)',
                   }}
                 >
-                  <Sparkles className="h-3.5 w-3.5" />
-                  <span className="text-[11px] font-semibold uppercase tracking-[0.16em]">All features</span>
+                  <Radar className="h-3.5 w-3.5" />
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.16em]">How it works</span>
                 </div>
                 <h2 className="mx-auto mt-5 max-w-4xl text-3xl font-semibold tracking-[-0.05em] text-white md:text-5xl">
-                  Explore the full power of PipelineXR.
+                  From commit to production in three steps.
                 </h2>
                 <p className="mx-auto mt-5 max-w-2xl text-base leading-8" style={{ color: textMuted }}>
-                  The platform is designed to support the full release lifecycle, from commit to validation to
-                  deployment and operational follow-through.
+                  PipelineXR follows the rhythm your team already works in—commit, build, verify, deploy, and observe.
                 </p>
-                <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
-                  <MotionButton
-                    onClick={() => navigate('/login')}
-                    whileHover={{ y: -3, scale: 1.01 }}
-                    whileTap={{ scale: 0.985 }}
-                    transition={{ duration: 0.22 }}
-                    className="inline-flex items-center justify-center gap-2 rounded-full px-6 py-3.5 text-sm font-semibold"
-                    style={{
-                      background: '#F5F7FB',
-                      color: '#05070C',
-                      boxShadow: '0 18px 40px rgba(255,255,255,0.12)',
-                    }}
-                  >
-                    See all benefits
-                    <ArrowRight className="h-4 w-4" />
-                  </MotionButton>
-                  <MotionButton
-                    onClick={() => navigate('/login')}
-                    whileHover={{ y: -3, backgroundColor: 'rgba(255,255,255,0.07)' }}
-                    whileTap={{ scale: 0.985 }}
-                    transition={{ duration: 0.22 }}
-                    className="inline-flex items-center justify-center gap-2 rounded-full px-6 py-3.5 text-sm font-semibold"
-                    style={{
-                      background: 'rgba(255,255,255,0.04)',
-                      color: 'rgba(255,255,255,0.82)',
-                      border: '1px solid rgba(255,255,255,0.08)',
-                    }}
-                  >
-                    Get started
-                    <ChevronRight className="h-4 w-4" />
-                  </MotionButton>
-                </div>
               </motion.div>
 
-              <div className="mt-14 space-y-6">
-                {featureSteps.map((item, index) => (
+              <div className="mt-14 space-y-5" style={{ maxWidth: '820px', marginLeft: 'auto', marginRight: 'auto' }}>
+                {howItWorksSteps.map((item, index) => (
                   <motion.div
                     key={item.title}
                     initial={{ opacity: 0, y: 34 }}
                     whileInView={{ opacity: 1, y: 0 }}
                     viewport={{ once: true, amount: 0.35 }}
-                    transition={{ duration: 0.7, delay: index * 0.06, ease: sectionEase }}
-                    className="grid gap-5 rounded-[34px] p-6 md:p-8 lg:grid-cols-[1fr_180px] lg:items-center"
+                    transition={{ duration: 0.72, delay: index * 0.07, ease: sectionEase }}
+                    className={`grid gap-8 rounded-[28px] p-6 md:p-8 lg:items-center ${index % 2 === 1 ? 'lg:grid-cols-[0.35fr_0.65fr]' : 'lg:grid-cols-[0.6fr_0.4fr]'}`}
                     style={{
-                      background: glassStrong,
-                      border: borderSoft,
-                      backdropFilter: glassBackdrop,
-                      WebkitBackdropFilter: glassBackdrop,
-                      boxShadow: '0 24px 80px rgba(0,0,0,0.24)',
+                      background: 'rgba(28,28,30,0.5)',
+                      border: '1px solid rgba(255,255,255,0.08)',
+                      backdropFilter: 'blur(20px)',
                     }}
                   >
-                    <div className={index % 2 === 1 ? 'lg:order-2' : ''}>
-                      <h3 className="text-2xl font-semibold tracking-[-0.04em] text-white md:text-3xl">{item.title}</h3>
-                      <p className="mt-4 max-w-2xl text-base leading-8" style={{ color: textMuted }}>
+                    <div className={index % 2 === 1 ? 'lg:order-2 lg:pl-2' : 'lg:pr-8'}>
+                      <div
+                        className="inline-flex items-center gap-2 rounded-full px-3 py-1.5"
+                        style={{
+                          background: `${item.accent}12`,
+                          border: `1px solid ${item.accent}22`,
+                          color: item.accent,
+                        }}
+                      >
+                        <span className="text-[11px] font-semibold uppercase tracking-[0.14em]">Step {item.step}</span>
+                      </div>
+                      <h3 className="mt-4 text-2xl font-semibold tracking-[-0.03em] text-white md:text-3xl">{item.title}</h3>
+                      <p className="mt-4 text-base leading-7" style={{ color: 'rgba(255,255,255,0.5)' }}>
                         {item.body}
                       </p>
                     </div>
 
-                    <motion.div
-                      whileHover={{ scale: 1.04, rotate: 2 }}
-                      transition={{ duration: 0.24 }}
-                      className={index % 2 === 1 ? 'lg:order-1' : ''}
+                    <div className={`flex items-center justify-center ${index % 2 === 1 ? 'lg:order-1 lg:justify-center' : 'lg:justify-start'}`}
+                      style={{ paddingLeft: '1.5rem', paddingRight: '1.5rem' }}
                     >
                       <div
-                        className="mx-auto flex h-32 w-32 items-center justify-center rounded-[32px] md:h-36 md:w-36"
+                        className="flex h-28 w-28 items-center justify-center rounded-[24px]"
                         style={{
-                          background: `${item.accent}14`,
-                          border: `1px solid ${item.accent}28`,
+                          background: `${item.accent}15`,
+                          border: `1px solid ${item.accent}25`,
                           boxShadow: `0 0 40px ${item.accent}18`,
                         }}
                       >
                         <item.icon className="h-12 w-12" style={{ color: item.accent }} />
                       </div>
-                    </motion.div>
+                    </div>
                   </motion.div>
                 ))}
               </div>
 
               <div className="mt-16 grid gap-5 md:grid-cols-3">
+                {howItWorksCards.map((card, index) => (
+                  <motion.div
+                    key={card.title}
+                    initial={{ opacity: 0, y: 26 }}
+                    whileInView={{ opacity: 1, y: 0 }}
+                    viewport={{ once: true, amount: 0.45 }}
+                    transition={{ duration: 0.65, delay: index * 0.06, ease: sectionEase }}
+                    whileHover={{ y: -6 }}
+                    className="rounded-[30px] p-7"
+                    style={{
+                      background: 'rgba(18,20,27,0.82)',
+                      border: '1px solid rgba(255,255,255,0.07)',
+                    }}
+                  >
+                    <div
+                      className="flex h-12 w-12 items-center justify-center rounded-2xl"
+                      style={{
+                        background: `${card.accent}18`,
+                        border: `1px solid ${card.accent}30`,
+                      }}
+                    >
+                      <card.icon className="h-5 w-5" style={{ color: card.accent }} />
+                    </div>
+                    <h3 className="mt-5 text-2xl font-semibold tracking-[-0.04em] text-white">{card.title}</h3>
+                    <p className="mt-3 text-base leading-8" style={{ color: 'rgba(255,255,255,0.46)' }}>
+                      {card.body}
+                    </p>
+                  </motion.div>
+                ))}
+              </div>
+            </div>
+          </section>
+
+          <section className="py-16 md:py-24">
+            <div style={shell}>
+              <div className="mt-0 grid gap-5 md:grid-cols-3">
                 {featureCardsPrimary.map((card, index) => (
                   <motion.div
                     key={card.title}
@@ -1568,10 +1604,10 @@ const LandingPage = () => {
                     <span className="text-[11px] font-semibold uppercase tracking-[0.16em]">Trusted by teams</span>
                   </div>
                   <h2 className="mt-5 text-3xl font-semibold tracking-[-0.05em] text-white md:text-5xl">
-                    Cleaner enterprise SaaS polish with real product credibility.
+                    Trusted by engineering teams worldwide.
                   </h2>
                   <p className="mt-5 max-w-xl text-base leading-8" style={{ color: textMuted }}>
-                    This section adds proof, social confidence, and decision support so the page no longer ends like a concept.
+                    See what teams are saying about their experience with PipelineXR for CI/CD observability.
                   </p>
                 </div>
 
@@ -1584,7 +1620,7 @@ const LandingPage = () => {
                       viewport={{ once: true, amount: 0.35 }}
                       transition={{ duration: 0.65, delay: index * 0.06, ease: sectionEase }}
                       whileHover={{ y: -5 }}
-                      className="rounded-[30px] p-6"
+                      className="rounded-[30px] p-6 flex flex-col"
                       style={{
                         background: glassBase,
                         border: borderSubtle,
@@ -1596,10 +1632,20 @@ const LandingPage = () => {
                           <Star key={starIndex} className="h-4 w-4 fill-current" style={{ color: '#FBBF24' }} />
                         ))}
                       </div>
-                      <p className="text-base leading-8 text-white">"{item.quote}"</p>
-                      <div className="mt-5 text-sm font-semibold text-white">{item.name}</div>
-                      <div className="mt-1 text-sm" style={{ color: 'rgba(255,255,255,0.42)' }}>
-                        {item.role} · {item.company}
+                      <p className="text-base leading-7 flex-1" style={{ color: 'rgba(255,255,255,0.82)' }}>"{item.quote}"</p>
+                      <div className="mt-5 flex items-center gap-3">
+                        <div
+                          className="flex h-10 w-10 items-center justify-center rounded-full text-sm font-semibold text-white"
+                          style={{ background: 'linear-gradient(135deg, #3B82F6 0%, #2563EB 100%)' }}
+                        >
+                          {item.name.split(' ').map(n => n[0]).join('')}
+                        </div>
+                        <div>
+                          <div className="text-sm font-semibold text-white">{item.name}</div>
+                          <div className="text-xs" style={{ color: 'rgba(255,255,255,0.42)' }}>
+                            {item.role}, {item.company}
+                          </div>
+                        </div>
                       </div>
                     </motion.div>
                   ))}
@@ -1649,6 +1695,20 @@ const LandingPage = () => {
                         </div>
                       ))}
                     </div>
+                    <motion.button
+                      onClick={() => navigate('/login')}
+                      whileHover={{ y: -2 }}
+                      whileTap={{ scale: 0.98 }}
+                      transition={{ duration: 0.22 }}
+                      className="mt-6 w-full rounded-full py-3 text-sm font-semibold transition-colors"
+                      style={{
+                        background: tier.featured ? '#F5F7FB' : 'rgba(255,255,255,0.06)',
+                        color: tier.featured ? '#05070C' : 'rgba(255,255,255,0.86)',
+                        border: tier.featured ? 'none' : '1px solid rgba(255,255,255,0.1)',
+                      }}
+                    >
+                      {tier.name === 'Enterprise' ? 'Contact Sales' : tier.name === 'Starter' ? 'Get Started Free' : 'Start Free Trial'}
+                    </motion.button>
                   </motion.div>
                 ))}
               </div>
@@ -1673,7 +1733,7 @@ const LandingPage = () => {
                     <span className="text-[11px] font-semibold uppercase tracking-[0.16em]">FAQ</span>
                   </div>
                   <h2 className="mt-5 text-3xl font-semibold tracking-[-0.05em] text-white md:text-5xl">
-                    The final details users usually need before they decide.
+                    Frequently asked questions.
                   </h2>
                 </div>
                 <div className="space-y-4">
@@ -1691,236 +1751,252 @@ const LandingPage = () => {
           </section>
 
           <section className="py-16 md:py-24">
-            <div style={shell}>
+            <div style={{ ...shell, maxWidth: '640px' }}>
               <motion.div
-                initial={{ opacity: 0, y: 28 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true, amount: 0.35 }}
-                transition={{ duration: 0.75, ease: sectionEase }}
-                className="text-center"
-              >
-                <div
-                  className="inline-flex items-center gap-2 rounded-full px-3 py-1.5"
-                  style={{
-                    background: 'rgba(255,255,255,0.04)',
-                    border: '1px solid rgba(255,255,255,0.07)',
-                    color: 'rgba(255,255,255,0.74)',
-                  }}
-                >
-                  <Radar className="h-3.5 w-3.5" />
-                  <span className="text-[11px] font-semibold uppercase tracking-[0.16em]">How it works</span>
-                </div>
-                <h2 className="mx-auto mt-5 max-w-4xl text-3xl font-semibold tracking-[-0.05em] text-white md:text-5xl">
-                  Automate delivery from code to deployment.
-                </h2>
-                <p className="mx-auto mt-5 max-w-2xl text-base leading-8" style={{ color: textMuted }}>
-                  PipelineXR follows the rhythm your team already works in, then turns that rhythm into a cleaner,
-                  observable release system.
-                </p>
-                <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
-                  <MotionButton
-                    onClick={() => navigate('/login')}
-                    whileHover={{ y: -3, scale: 1.01 }}
-                    whileTap={{ scale: 0.985 }}
-                    transition={{ duration: 0.22 }}
-                    className="inline-flex items-center justify-center gap-2 rounded-full px-6 py-3.5 text-sm font-semibold"
-                    style={{
-                      background: '#F5F7FB',
-                      color: '#05070C',
-                      boxShadow: '0 18px 40px rgba(255,255,255,0.12)',
-                    }}
-                  >
-                    Get started
-                    <ArrowRight className="h-4 w-4" />
-                  </MotionButton>
-                  <MotionButton
-                    onClick={() => navigate('/login')}
-                    whileHover={{ y: -3, backgroundColor: 'rgba(255,255,255,0.07)' }}
-                    whileTap={{ scale: 0.985 }}
-                    transition={{ duration: 0.22 }}
-                    className="inline-flex items-center justify-center gap-2 rounded-full px-6 py-3.5 text-sm font-semibold"
-                    style={{
-                      background: 'rgba(255,255,255,0.04)',
-                      color: 'rgba(255,255,255,0.82)',
-                      border: '1px solid rgba(255,255,255,0.08)',
-                    }}
-                  >
-                    See docs
-                    <ChevronRight className="h-4 w-4" />
-                  </MotionButton>
-                </div>
-              </motion.div>
-
-              <div className="mt-14 space-y-6">
-                {howItWorksSteps.map((item, index) => (
-                  <motion.div
-                    key={item.title}
-                    initial={{ opacity: 0, y: 34 }}
-                    whileInView={{ opacity: 1, y: 0 }}
-                    viewport={{ once: true, amount: 0.35 }}
-                    transition={{ duration: 0.72, delay: index * 0.07, ease: sectionEase }}
-                    className="grid gap-5 rounded-[34px] p-6 md:p-8 lg:grid-cols-[1fr_190px] lg:items-center"
-                    style={{
-                      background: 'linear-gradient(180deg, rgba(18,20,27,0.9) 0%, rgba(10,11,16,0.88) 100%)',
-                      border: '1px solid rgba(255,255,255,0.08)',
-                    }}
-                  >
-                    <div className={index % 2 === 1 ? 'lg:order-2' : ''}>
-                      <div
-                        className="inline-flex items-center gap-2 rounded-full px-3 py-1.5"
-                        style={{
-                          background: `${item.accent}12`,
-                          border: `1px solid ${item.accent}22`,
-                          color: item.accent,
-                        }}
-                      >
-                        <span className="text-[11px] font-semibold uppercase tracking-[0.16em]">Step {item.step}</span>
-                      </div>
-                      <h3 className="mt-4 text-2xl font-semibold tracking-[-0.04em] text-white md:text-3xl">{item.title}</h3>
-                      <p className="mt-4 max-w-2xl text-base leading-8" style={{ color: 'rgba(255,255,255,0.48)' }}>
-                        {item.body}
-                      </p>
-                    </div>
-
-                    <motion.div
-                      whileHover={{ scale: 1.04, rotate: -2 }}
-                      transition={{ duration: 0.24 }}
-                      className={index % 2 === 1 ? 'lg:order-1' : ''}
-                    >
-                      <div
-                        className="mx-auto flex h-36 w-36 items-center justify-center rounded-[34px]"
-                        style={{
-                          background: `${item.accent}14`,
-                          border: `1px solid ${item.accent}28`,
-                          boxShadow: `0 0 44px ${item.accent}16`,
-                        }}
-                      >
-                        <item.icon className="h-12 w-12" style={{ color: item.accent }} />
-                      </div>
-                    </motion.div>
-                  </motion.div>
-                ))}
-              </div>
-
-              <div className="mt-16 grid gap-5 md:grid-cols-3">
-                {howItWorksCards.map((card, index) => (
-                  <motion.div
-                    key={card.title}
-                    initial={{ opacity: 0, y: 26 }}
-                    whileInView={{ opacity: 1, y: 0 }}
-                    viewport={{ once: true, amount: 0.45 }}
-                    transition={{ duration: 0.65, delay: index * 0.06, ease: sectionEase }}
-                    whileHover={{ y: -6 }}
-                    className="rounded-[30px] p-7"
-                    style={{
-                      background: 'rgba(18,20,27,0.82)',
-                      border: '1px solid rgba(255,255,255,0.07)',
-                    }}
-                  >
-                    <div
-                      className="flex h-12 w-12 items-center justify-center rounded-2xl"
-                      style={{
-                        background: `${card.accent}18`,
-                        border: `1px solid ${card.accent}30`,
-                      }}
-                    >
-                      <card.icon className="h-5 w-5" style={{ color: card.accent }} />
-                    </div>
-                    <h3 className="mt-5 text-2xl font-semibold tracking-[-0.04em] text-white">{card.title}</h3>
-                    <p className="mt-3 text-base leading-8" style={{ color: 'rgba(255,255,255,0.46)' }}>
-                      {card.body}
-                    </p>
-                  </motion.div>
-                ))}
-              </div>
-
-              <motion.div
-                initial={{ opacity: 0, y: 28 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true, amount: 0.35 }}
-                transition={{ duration: 0.8, ease: sectionEase }}
-                className="mt-16 rounded-[36px] p-8 md:p-10"
-                style={{
-                  background: glassStrong,
-                  border: borderSoft,
-                  boxShadow: '0 28px 90px rgba(0,0,0,0.28)',
-                  backdropFilter: glassBackdrop,
-                  WebkitBackdropFilter: glassBackdrop,
-                }}
-              >
-                <div className="max-w-4xl">
-                  <h3 className="text-3xl font-semibold tracking-[-0.05em] text-white md:text-4xl">
-                    Why CI/CD with PipelineXR?
-                  </h3>
-                  <p className="mt-5 text-base leading-8" style={{ color: textMuted }}>
-                    PipelineXR gives teams continuous integration and continuous delivery with a cleaner operating
-                    experience. Every code change can be verified, built, protected, and observed without forcing
-                    people into disconnected tools and disconnected decisions.
-                  </p>
-                  <p className="mt-5 text-base leading-8" style={{ color: textMuted }}>
-                    From developer commit to production deployment, each stage stays more traceable and easier to
-                    understand. The result is a faster release loop, higher quality confidence, and a workflow that
-                    feels closer to a real product than a patchwork of dashboards.
-                  </p>
-                </div>
-              </motion.div>
-            </div>
-          </section>
-
-          <section className="pt-8 md:pt-12">
-            <div style={{ ...shell, maxWidth: '980px' }}>
-              <MotionDiv
                 initial={{ opacity: 0, y: 24 }}
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true, amount: 0.35 }}
                 transition={{ duration: 0.8, ease: sectionEase }}
-                className="rounded-[40px] px-7 py-10 text-center md:px-12 md:py-14"
+                className="rounded-[34px] px-6 py-10 md:px-10 md:py-12"
                 style={{
-                  background:
-                    'radial-gradient(circle at top, rgba(59,130,246,0.10), transparent 34%), rgba(28, 28, 30, 0.52)',
+                  background: glassStrong,
                   border: borderSoft,
-                  boxShadow: '0 34px 100px rgba(0,0,0,0.34)',
                   backdropFilter: glassBackdrop,
                   WebkitBackdropFilter: glassBackdrop,
+                  boxShadow: '0 28px 90px rgba(0,0,0,0.28)',
                 }}
               >
-                <div
-                  className="mx-auto inline-flex items-center gap-2 rounded-full px-3 py-1.5"
-                  style={{
-                    background: 'rgba(255,255,255,0.04)',
-                    border: '1px solid rgba(255,255,255,0.07)',
-                    color: 'rgba(255,255,255,0.7)',
-                  }}
-                >
-                  <Zap className="h-3.5 w-3.5" />
-                  <span className="text-[11px] font-semibold uppercase tracking-[0.16em]">Final frame</span>
+                <div className="text-center mb-8">
+                  <h2 className="text-3xl font-semibold tracking-[-0.04em] text-white md:text-4xl">
+                    Connect With Our Team
+                  </h2>
+                  <p className="mt-3 text-base" style={{ color: textMuted }}>
+                    We respond within one business day.
+                  </p>
                 </div>
 
-                <h2 className="mt-5 text-3xl font-semibold tracking-[-0.05em] text-white md:text-5xl">
-                  A cleaner landing page with a stronger story.
-                </h2>
-                <p className="mx-auto mt-5 max-w-2xl text-base leading-8" style={{ color: textMuted }}>
-                  Bigger spacing, calmer composition, and motion that guides attention instead of competing for it.
-                </p>
-
-                <MotionButton
-                  onClick={() => navigate('/login')}
-                  whileHover={{ y: -3, scale: 1.01 }}
-                  whileTap={{ scale: 0.985 }}
-                  transition={{ duration: 0.22 }}
-                  className="mt-8 inline-flex items-center gap-2 rounded-full px-6 py-3.5 text-sm font-semibold"
-                  style={{
-                    background: '#F5F7FB',
-                    color: '#05070C',
-                    boxShadow: '0 18px 40px rgba(255,255,255,0.12)',
+                <form
+                  action="https://formspree.io/f/myklknkz"
+                  method="POST"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const form = e.target;
+                    fetch(form.action, {
+                      method: 'POST',
+                      body: new FormData(form),
+                      headers: { Accept: 'application/json' },
+                    }).then(res => {
+                      if (res.ok) {
+                        form.reset();
+                        alert('Message sent! We\'ll get back to you within one business day.');
+                      } else {
+                        alert('Something went wrong. Please try again.');
+                      }
+                    }).catch(() => alert('Something went wrong. Please try again.'));
                   }}
+                  style={{ maxWidth: '480px', margin: '0 auto' }}
                 >
-                  Launch PipelineXR
-                  <ArrowRight className="h-4 w-4" />
-                </MotionButton>
-              </MotionDiv>
+                  <div style={{ marginBottom: '20px' }}>
+                    <label htmlFor="contact-name" style={{ display: 'block', marginBottom: '8px', fontSize: '12px', fontWeight: 500, opacity: 0.7, color: '#fff' }}>Name</label>
+                    <input
+                      id="contact-name"
+                      type="text"
+                      name="name"
+                      placeholder="Jane Smith"
+                      style={{
+                        width: '100%', padding: '12px', borderRadius: '10px',
+                        border: '1px solid rgba(238,238,238,0.5)',
+                        background: 'rgba(238,238,238,0.1)',
+                        color: 'white', fontSize: '14px',
+                        outline: 'none', boxSizing: 'border-box',
+                        fontFamily: 'inherit',
+                        transition: 'border-color 0.3s ease',
+                      }}
+                    />
+                  </div>
+
+                  <div style={{ marginBottom: '20px' }}>
+                    <label htmlFor="contact-email" style={{ display: 'block', marginBottom: '8px', fontSize: '12px', fontWeight: 500, opacity: 0.7, color: '#fff' }}>Email</label>
+                    <input
+                      id="contact-email"
+                      type="email"
+                      name="email"
+                      placeholder="jane@framer.com"
+                      style={{
+                        width: '100%', padding: '12px', borderRadius: '10px',
+                        border: '1px solid rgba(238,238,238,0.5)',
+                        background: 'rgba(238,238,238,0.1)',
+                        color: 'white', fontSize: '14px',
+                        outline: 'none', boxSizing: 'border-box',
+                        fontFamily: 'inherit',
+                        transition: 'border-color 0.3s ease',
+                      }}
+                    />
+                  </div>
+
+                  <div style={{ marginBottom: '20px' }}>
+                    <label htmlFor="contact-message" style={{ display: 'block', marginBottom: '8px', fontSize: '12px', fontWeight: 500, opacity: 0.7, color: '#fff' }}>Message</label>
+                    <textarea
+                      id="contact-message"
+                      name="message"
+                      placeholder="Your message…"
+                      rows={5}
+                      style={{
+                        width: '100%', padding: '12px', borderRadius: '10px',
+                        border: '1px solid rgba(238,238,238,0.5)',
+                        background: 'rgba(238,238,238,0.1)',
+                        color: 'white', fontSize: '14px',
+                        outline: 'none', boxSizing: 'border-box',
+                        fontFamily: 'inherit', resize: 'vertical',
+                        minHeight: '120px',
+                        transition: 'border-color 0.3s ease',
+                      }}
+                    />
+                  </div>
+
+                  <motion.button
+                    type="submit"
+                    whileHover={{ y: -2, background: 'rgba(255,255,255,0.2)' }}
+                    whileTap={{ scale: 0.98 }}
+                    transition={{ duration: 0.22 }}
+                    style={{
+                      width: '100%', padding: '12px 24px',
+                      borderRadius: '100px', fontSize: '16px', fontWeight: 600,
+                      cursor: 'pointer', border: '1px solid rgba(255,255,255,0.2)',
+                      background: 'rgba(255,255,255,0.1)',
+                      backdropFilter: 'blur(10px)',
+                      boxShadow: '0 4px 20px rgba(0,0,0,0.1)',
+                      color: 'white', fontFamily: 'inherit',
+                    }}
+                  >
+                    Submit
+                  </motion.button>
+                </form>
+              </motion.div>
             </div>
           </section>
+
+          <footer className="pt-8 pb-6 px-5 sm:px-6 md:px-8 xl:px-10" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+            <div style={shell}>
+              <div className="grid gap-10 lg:grid-cols-[1.5fr_1fr_1fr_1fr_1fr]">
+                <div>
+                  <div className="flex items-center gap-3 mb-4">
+                    <div
+                      className="flex h-10 w-10 items-center justify-center rounded-2xl text-[11px] font-black text-white"
+                      style={{
+                        background: 'linear-gradient(135deg, #3B82F6 0%, #2563EB 100%)',
+                        boxShadow: '0 0 24px rgba(59,130,246,0.28)',
+                      }}
+                    >
+                      PX
+                    </div>
+                    <div>
+                      <div className="text-sm font-semibold tracking-tight text-white">PipelineXR</div>
+                      <div className="text-[11px]" style={{ color: textSoft }}>
+                        DevSecOps observability
+                      </div>
+                    </div>
+                  </div>
+                  <p className="text-sm leading-6 max-w-xs" style={{ color: 'rgba(255,255,255,0.42)' }}>
+                    Complete CI/CD visibility for engineering teams. Monitor pipelines, track DORA metrics, scan for vulnerabilities, and ensure uptime—all in one place.
+                  </p>
+                </div>
+
+                <div>
+                  <h4 className="text-sm font-semibold text-white mb-4">Product</h4>
+                  <div className="space-y-3">
+                    {['Home', 'Features', 'Documentation'].map((item) => (
+                      <a
+                        key={item}
+                        href="#"
+                        className="block text-sm transition-colors hover:text-white"
+                        style={{ color: 'rgba(255,255,255,0.42)' }}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          if (item === 'Home') window.scrollTo({ top: 0, behavior: 'smooth' });
+                          else if (item === 'Features') {
+                            const section = document.getElementById('features');
+                            if (section) section.scrollIntoView({ behavior: 'smooth' });
+                          }
+                        }}
+                      >
+                        {item}
+                      </a>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="text-sm font-semibold text-white mb-4">Company</h4>
+                  <div className="space-y-3">
+                    {['About', 'Pricing', 'Careers'].map((item) => (
+                      <a
+                        key={item}
+                        href="#"
+                        className="block text-sm transition-colors hover:text-white"
+                        style={{ color: 'rgba(255,255,255,0.42)' }}
+                        onClick={(e) => e.preventDefault()}
+                      >
+                        {item}
+                      </a>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="text-sm font-semibold text-white mb-4">Resources</h4>
+                  <div className="space-y-3">
+                    {['Blog', 'API', 'Help Center'].map((item) => (
+                      <a
+                        key={item}
+                        href="#"
+                        className="block text-sm transition-colors hover:text-white"
+                        style={{ color: 'rgba(255,255,255,0.42)' }}
+                        onClick={(e) => e.preventDefault()}
+                      >
+                        {item}
+                      </a>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="text-sm font-semibold text-white mb-4">Connect</h4>
+                  <div className="space-y-3">
+                    {[
+                      { name: 'GitHub', href: 'https://github.com/Dakshmulundkar' },
+                      { name: 'LinkedIn', href: 'https://www.linkedin.com/in/daksh-m-2780a3356' },
+                      { name: 'Twitter', href: 'https://twitter.com' },
+                    ].map((item) => (
+                      <a
+                        key={item.name}
+                        href={item.href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block text-sm transition-colors hover:text-white"
+                        style={{ color: 'rgba(255,255,255,0.42)' }}
+                      >
+                        {item.name}
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div
+                className="mt-8 pt-6 flex flex-col sm:flex-row items-center justify-between gap-4"
+                style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}
+              >
+                <p className="text-sm" style={{ color: 'rgba(255,255,255,0.34)' }}>
+                  © 2026 PipelineXR. All rights reserved.
+                </p>
+                <div className="flex items-center gap-6">
+                  <a href="#" className="text-sm transition-colors hover:text-white" style={{ color: 'rgba(255,255,255,0.34)' }} onClick={(e) => e.preventDefault()}>Privacy Policy</a>
+                  <a href="#" className="text-sm transition-colors hover:text-white" style={{ color: 'rgba(255,255,255,0.34)' }} onClick={(e) => e.preventDefault()}>Terms of Service</a>
+                </div>
+              </div>
+            </div>
+          </footer>
         </main>
       </div>
     </div>

@@ -197,7 +197,7 @@ In your GitHub repository → **Settings → Webhooks → Add webhook**:
 | Payload URL | `https://<your-domain>/api/github/webhook` |
 | Content type | `application/json` |
 | Secret | Value of `GITHUB_WEBHOOK_SECRET` |
-| Events | `workflow_run`, `workflow_job` |
+| Events | `workflow_run`, `workflow_job`, `push` |
 
 For local development, use [ngrok](https://ngrok.com) to expose your local server:
 
@@ -298,6 +298,14 @@ docker-compose up         # Run full stack in Docker
 ---
 
 ## Changelog
+
+### v0.6.1
+- **Email notifications** — pipeline failures and security scan results now automatically email the user who connected the repo (uses their GitHub email from OAuth login)
+- **Auto-scan on push** — GitHub `push` webhook triggers a background TrivyLite security scan; results are persisted and emailed if critical/high findings exist
+- **Per-commit dedup** — emails sent once per run ID (pipeline) and once per commit SHA (security); no repeat alerts for the same event
+- **AI-written emails** — Gemini 2.5 Flash Lite writes a 2-sentence summary for each alert email
+- **Contact form** — wired to Formspree; submissions delivered to Gmail
+- **Landing page** — contact form width increased; footer GitHub/LinkedIn links updated to real profiles; How It Works step 2 text column widened
 
 ### v0.5.9
 - **Notifications** — bell icon in top nav opens a real-time dropdown showing pipeline pass/fail events and security scan completions with icons, timestamps, and click-to-navigate

@@ -62,6 +62,7 @@ class GitHubWebhookService {
             switch (eventType) {
                 case 'workflow_run': await this.handleWorkflowRunEvent(payload, userId); break;
                 case 'workflow_job': await this.handleWorkflowJobEvent(payload, userId); break;
+                case 'push': this.handlePushEvent(payload, userId); break; // fire-and-forget
                 default: pipelineLogger.webhook(eventType, deliveryId, 'SKIPPED', 'Unhandled');
             }
             return { status: 'processed' };
@@ -106,6 +107,31 @@ class GitHubWebhookService {
                     workflow_name: run.name,
                     run_number: run.run_number,
                 }).catch(() => {});
+
+                // Send failure email alert
+                if (run.conclusion === 'failure') {
+                    const notifier = require('./emailNotifier');
+                    const failedSteps = [];
+                    // Collect failed job names from DB
+                    this.db.all(
+                        `SELECT job_name FROM workflow_jobs WHERE run_id = ? AND conclusion = 'failure'`,
+                        [run.id],
+                        (err, rows) => {
+                            if (!err && rows) rows.forEach(r => failedSteps.push(r.job_name));
+                            notifier.sendPipelineFailureEmail(userId, {
+                                run_id: run.id,
+                                repository: payload.repository?.full_name,
+                                workflow_name: run.name,
+                                conclusion: run.conclusion,
+                                duration_seconds: duration,
+                                head_branch: run.head_branch,
+                                triggering_actor: run.triggering_actor?.login,
+                                head_commit_message: run.head_commit?.message,
+                                html_url: run.html_url,
+                            }, failedSteps).catch(() => {});
+                        }
+                    );
+                }
             }
         } catch (error) {
             console.error('Workflow run processing error:', error);
@@ -120,6 +146,52 @@ class GitHubWebhookService {
         } catch (error) {
             console.error('Job processing error:', error);
         }
+    }
+
+    // Fire-and-forget: auto-scan repo on push, then email if critical/high vulns found
+    handlePushEvent(payload, userId) {
+        const repo = payload.repository?.full_name;
+        const commitSha = payload.after || payload.head_commit?.id || '';
+        if (!repo || !commitSha || commitSha === '0000000000000000000000000000000000000000') return;
+
+        // Run in background — don't block webhook response
+        setImmediate(async () => {
+            try {
+                console.log(`[WEBHOOK] Auto-scanning ${repo} on push (commit: ${commitSha.slice(0, 7)})`);
+                const trivyLite = require('./security/trivyLite');
+                const token = process.env.GITHUB_TOKEN;
+                if (!token) return;
+
+                // Clone and scan via TrivyLite (lightweight, no Docker needed)
+                const repoUrl = `https://github.com/${repo}`;
+                const results = await trivyLite.scanRemoteRepo(repoUrl, token).catch(() => []);
+
+                if (results.length > 0) {
+                    // Persist to DB
+                    const securityService = require('./securityService');
+                    for (const v of results) {
+                        await securityService.addVulnerability(
+                            userId, repo,
+                            v.scanner || 'trivy:vuln',
+                            v.id || v.cve_id || null,
+                            v.package_name || null,
+                            (v.severity || 'low').toLowerCase(),
+                            v.description || null,
+                            v.remediation || null,
+                            v.installed_version || null,
+                            v.fixed_version || null,
+                            v.primary_url || null
+                        ).catch(() => {});
+                    }
+
+                    // Send email alert (deduped by commitSha)
+                    const notifier = require('./emailNotifier');
+                    await notifier.sendSecurityAlertEmail(userId, repo, results, commitSha).catch(() => {});
+                }
+            } catch (e) {
+                console.warn(`[WEBHOOK] Auto-scan failed for ${repo}:`, e.message);
+            }
+        });
     }
 
     async storeWorkflowRun(run, repository, userId) {

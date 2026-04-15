@@ -401,7 +401,7 @@ app.get('/auth/logout', (req, res) => {
     req.session.destroy((err) => {
         if (err) console.error('[LOGOUT] Session destroy error:', err.message);
     });
-    res.redirect(`${FRONTEND_URL}/login`);
+    res.redirect(`${FRONTEND_URL}/landing`);
 });
 
 app.get('/auth/user', (req, res) => {
@@ -953,6 +953,12 @@ app.post('/api/security/scan/repo', expensiveLimiter, async (req, res) => {
             } catch (_) { /* skip duplicates */ }
         }
         io.emit('security_update', { type: 'SCAN_COMPLETED', repository: repoFull });
+
+        // Send security alert email if critical/high findings exist
+        if (results.length > 0) {
+            const notifier = require('../services/emailNotifier');
+            notifier.sendSecurityAlertEmail(userId, repoFull, results, '').catch(() => {});
+        }
 
         res.json({
             success: true,
