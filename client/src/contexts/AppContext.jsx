@@ -98,10 +98,11 @@ export const AppProvider = ({ children, isAuthenticated }) => {
 
         // Re-verify admin status from server — localStorage may be stale
         api.checkAuth().then(data => {
-            if (data?.user) {
+            if (data?.user && data?.authenticated) {
+                // Only update from server if we actually have an authenticated session
+                // (cross-origin cookie may be blocked — don't overwrite localStorage isAdmin with false)
                 setUser(prev => ({ ...prev, ...data.user }));
                 setIsAdmin(data.isAdmin === true);
-                // Update localStorage with fresh isAdmin value
                 const stored2 = localStorage.getItem('pxr_user');
                 if (stored2) {
                     try {
@@ -110,6 +111,8 @@ export const AppProvider = ({ children, isAuthenticated }) => {
                     } catch { /* ignore */ }
                 }
             }
+            // If authenticated: false, keep whatever isAdmin came from localStorage —
+            // cross-origin session cookies are blocked by browsers in production
         }).catch(() => {});
 
         // Fetch repos — uses gh_token via x-github-token header interceptor

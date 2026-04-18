@@ -85,6 +85,18 @@ class SecurityService {
         });
     }
 
+    // Call this BEFORE inserting new scan results for a repo+scanner combo.
+    // Clears stale rows so counts reflect the latest scan only.
+    async clearScanResults(userId, repo, scannerPrefix) {
+        return new Promise((resolve, reject) => {
+            this.db.run(
+                `DELETE FROM vulnerabilities WHERE user_id = ? AND repository = ? AND scanner LIKE ?`,
+                [userId, repo, `${scannerPrefix}%`],
+                (err) => { if (err) reject(err); else resolve(); }
+            );
+        });
+    }
+
     // Helper logic to get all vulnerabilities for AI contextualization
     async getVulnerabilities(repoFullName = null, userId = null) {
         return new Promise((resolve, reject) => {

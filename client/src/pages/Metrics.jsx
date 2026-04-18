@@ -196,20 +196,16 @@ const Metrics = () => {
             return;
         }
 
-        // Show cache immediately
-        if (!force) {
-            const cached = cacheGet('metrics', selectedRepo, r);
-            if (cached) {
-                const { metricsData: md, charts: ch, prevMetricsData: pmd } = cached.data;
-                setMetricsData(md);
-                setCharts(ch);
-                setPrevMetricsData(pmd);
-                setLoading(false);
-                if (!cached.stale) return;
-                // stale — fall through to refresh silently (no loading spinner)
-            } else {
-                setLoading(true);
-            }
+        // 1. Show cache immediately — never block the UI
+        const cached = cacheGet('metrics', selectedRepo, r);
+        if (cached && !force) {
+            const { metricsData: md, charts: ch, prevMetricsData: pmd } = cached.data;
+            setMetricsData(md);
+            setCharts(ch);
+            setPrevMetricsData(pmd);
+            setLoading(false);
+            if (!cached.stale) return; // fresh — done
+            // stale — refresh silently in background, no spinner
         } else {
             setLoading(true);
         }
@@ -218,21 +214,15 @@ const Metrics = () => {
         controller.current = new AbortController();
 
         try {
-            // Auto-sync from GitHub API so data is always fresh — no webhook needed
-            if (selectedRepo) {
-                const days = r === '24h' ? 1 : r === '7d' ? 7 : r === '30d' ? 30 : 90;
-                try {
-                    await api.syncDoraMetrics(selectedRepo, days);
-                } catch (syncErr) {
-                    console.warn('DORA sync failed (continuing with cached data):', syncErr.message);
-                }
-            }
-
-            // Fetch current and previous period data for trend calculation
             const days = r === '24h' ? 1 : r === '7d' ? 7 : r === '30d' ? 30 : 90;
+
+            // 2. Fire sync in background — never await it, never block the fetch
+            api.syncDoraMetrics(selectedRepo, days).catch(() => {});
+
+            // 3. Fetch current + previous period in parallel
             const [data, fullData] = await Promise.all([
-                api.getDoraMetrics(selectedRepo || null, r),
-                api.getDoraMetrics(selectedRepo || null, `${days * 2}d`), // Double period for previous comparison
+                api.getDoraMetrics(selectedRepo, r),
+                api.getDoraMetrics(selectedRepo, `${days * 2}d`),
             ]);
             setMetricsData(data);
 

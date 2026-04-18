@@ -131,7 +131,6 @@ const howItWorksSteps = [
   },
 ];
 
-const howItWorksCards = [];
 
 const testimonials = [
   {

@@ -18,64 +18,49 @@ class MetricsService {
     }
 
     async getDoraMetrics(repo = null, days = 7, userId = null) {
-        return new Promise((resolve, reject) => {
-            const safeDays = Number(days) || 7;
-            const userFilter = userId ? 'AND user_id = ?' : '';
+        const safeDays = Number(days) || 7;
+        const repoFilter = repo ? 'AND repository = ?' : '';
+        const userFilter = userId ? 'AND user_id = ?' : '';
+        const baseParams = [safeDays, ...(repo ? [repo] : []), ...(userId ? [userId] : [])];
 
-            const rawSql = `
-                SELECT run_started_at, created_at, updated_at, conclusion,
-                       workflow_name, head_branch, head_commit_message,
-                       run_number, triggering_actor, html_url
-                FROM workflow_runs
-                WHERE run_started_at >= NOW() - (? * INTERVAL '1 day')
-                ${repo ? 'AND repository = ?' : ''}
-                ${userFilter}
-                ORDER BY run_started_at DESC
-            `;
-            const rawParams = [safeDays, ...(repo ? [repo] : []), ...(userId ? [userId] : [])];
+        const rawSql = `
+            SELECT run_started_at, created_at, updated_at, conclusion,
+                   workflow_name, head_branch, head_commit_message,
+                   run_number, triggering_actor, html_url
+            FROM workflow_runs
+            WHERE run_started_at >= NOW() - (? * INTERVAL '1 day')
+            ${repoFilter} ${userFilter}
+            ORDER BY run_started_at DESC
+        `;
 
-            this.db.all(rawSql, rawParams, (rawErr, rawRuns) => {
-                if (rawErr) return reject(rawErr);
+        const kpiSql = `
+            SELECT COUNT(*) as total_runs,
+                SUM(CASE WHEN conclusion = 'success' THEN 1 ELSE 0 END) as successful_runs,
+                AVG(duration_seconds) as avg_duration_seconds,
+                AVG(EXTRACT(EPOCH FROM (run_started_at - created_at)) / 3600) as avg_wait_hours
+            FROM workflow_runs
+            WHERE run_started_at >= NOW() - (? * INTERVAL '1 day')
+            AND run_started_at IS NOT NULL AND created_at IS NOT NULL
+            ${repoFilter} ${userFilter}
+        `;
 
-                const kpiSql = `
-                    SELECT COUNT(*) as total_runs,
-                        SUM(CASE WHEN conclusion = 'success' THEN 1 ELSE 0 END) as successful_runs,
-                        AVG(duration_seconds) as avg_duration_seconds
-                    FROM workflow_runs
-                    WHERE run_started_at >= NOW() - (? * INTERVAL '1 day')
-                    ${repo ? 'AND repository = ?' : ''}
-                    ${userFilter}
-                `;
-                const kpiParams = [safeDays, ...(repo ? [repo] : []), ...(userId ? [userId] : [])];
+        // Run both queries in parallel — single round-trip each instead of 3 sequential
+        const [rawRuns, row] = await Promise.all([
+            new Promise((resolve, reject) =>
+                this.db.all(rawSql, baseParams, (err, rows) => err ? reject(err) : resolve(rows || []))),
+            new Promise((resolve, reject) =>
+                this.db.get(kpiSql, baseParams, (err, r) => err ? reject(err) : resolve(r || {}))),
+        ]);
 
-                this.db.get(kpiSql, kpiParams, (kpiErr, row) => {
-                    if (kpiErr) return reject(kpiErr);
+        const totalRuns        = parseInt(row.total_runs) || 0;
+        const successfulRuns   = parseInt(row.successful_runs) || 0;
+        const avgDurationSecs  = parseFloat(row.avg_duration_seconds) || 0;
+        const successRate      = totalRuns > 0 ? Math.round((successfulRuns / totalRuns) * 100) : 0;
+        const avgBuildDuration = avgDurationSecs > 0 ? Math.round((avgDurationSecs / 60) * 10) / 10 : 0;
+        const deploymentFrequency = safeDays > 0 ? Math.round((successfulRuns / safeDays) * 10) / 10 : 0;
+        const avgWaitTime      = row.avg_wait_hours > 0 ? Math.round(row.avg_wait_hours * 100) / 100 : 0;
 
-                    const totalRuns = parseInt(row?.total_runs) || 0;
-                    const successfulRuns = parseInt(row?.successful_runs) || 0;
-                    const avgDurationSeconds = parseFloat(row?.avg_duration_seconds) || 0;
-                    const successRate = totalRuns > 0 ? Math.round((successfulRuns / totalRuns) * 100) : 0;
-                    const avgBuildDuration = avgDurationSeconds > 0 ? Math.round((avgDurationSeconds / 60) * 10) / 10 : 0;
-                    const deploymentFrequency = safeDays > 0 ? Math.round((successfulRuns / safeDays) * 10) / 10 : 0;
-
-                    const waitSql = `
-                        SELECT AVG(EXTRACT(EPOCH FROM (run_started_at - created_at)) / 3600) as avg_wait_hours
-                        FROM workflow_runs
-                        WHERE run_started_at >= NOW() - (? * INTERVAL '1 day')
-                        AND run_started_at IS NOT NULL AND created_at IS NOT NULL
-                        ${repo ? 'AND repository = ?' : ''}
-                        ${userFilter}
-                    `;
-                    const waitParams = [safeDays, ...(repo ? [repo] : []), ...(userId ? [userId] : [])];
-
-                    this.db.get(waitSql, waitParams, (_waitErr, waitRow) => {
-                        const avgWaitTime = waitRow?.avg_wait_hours > 0
-                            ? Math.round(waitRow.avg_wait_hours * 100) / 100 : 0;
-                        resolve({ avgBuildDuration, totalDeployments: successfulRuns, deploymentFrequency, avgWaitTime, successRate, rawRuns: rawRuns || [] });
-                    });
-                });
-            });
-        });
+        return { avgBuildDuration, totalDeployments: successfulRuns, deploymentFrequency, avgWaitTime, successRate, rawRuns };
     }
 
     async syncWorkflowRunsFromGitHub(repository, days = 7, userId) {

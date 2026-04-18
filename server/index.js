@@ -592,7 +592,8 @@ app.post('/api/auth/sync-user', async (req, res) => {
             name: name || login,
             last_login: new Date().toISOString(),
         });
-        res.json({ ok: true, userId: dbUser?.id });
+        const isAdmin = !!(resolvedAdminLogin && login && login.toLowerCase() === resolvedAdminLogin.toLowerCase());
+        res.json({ ok: true, userId: dbUser?.id, isAdmin });
     } catch (e) {
         console.error('[sync-user]', e.message);
         res.status(500).json({ error: e.message });
@@ -723,34 +724,29 @@ app.post('/api/reports/sync', expensiveLimiter, async (req, res) => {
 });
 
 // PDF download using pdfkit (no Chrome/Puppeteer needed — works on Render)
-app.get('/api/reports/download', expensiveLimiter, async (req, res) => {
+app.get('/api/reports/download', async (req, res) => {
     try {
         const userId = getUserId(req); if (!userId) return res.status(401).json({ error: 'Authentication required' });
         const { repository } = req.query;
 
-        const [doraData, secData, runsRaw, testData] = await Promise.allSettled([
+        // All queries run in parallel — no sequential waiting
+        const [doraData, prevDoraData, secData, testData] = await Promise.allSettled([
             metricsService.getDoraMetrics(repository || null, 30, userId),
+            metricsService.getDoraMetrics(repository || null, 60, userId),
             securityService.getSummary(repository || null, userId),
-            new Promise((resolve, reject) => {
-                const sql = repository
-                    ? `SELECT run_id, run_number, workflow_name, conclusion, run_started_at, duration_seconds, head_branch, head_commit_message FROM workflow_runs WHERE user_id=? AND repository=? ORDER BY run_started_at DESC LIMIT 50`
-                    : `SELECT run_id, run_number, workflow_name, conclusion, run_started_at, duration_seconds, head_branch, head_commit_message FROM workflow_runs WHERE user_id=? ORDER BY run_started_at DESC LIMIT 50`;
-                const params = repository ? [userId, repository] : [userId];
-                const db = require('../services/database');
-                db.all(sql, params, (err, rows) => err ? reject(err) : resolve(rows || []));
-            }),
             new Promise((resolve) => {
                 const AnalyticsService = require('../services/analytics');
-                const analyticsInst = new AnalyticsService();
-                analyticsInst.getTestReports(userId, repository || null)
+                new AnalyticsService().getTestReports(userId, repository || null)
                     .then(resolve).catch(() => resolve([]));
             }),
         ]);
 
-        const dora  = doraData.status === 'fulfilled' ? doraData.value : {};
-        const sec   = secData.status  === 'fulfilled' ? secData.value  : {};
-        const runs  = runsRaw.status  === 'fulfilled' ? runsRaw.value  : [];
-        const tests = testData.status === 'fulfilled' ? testData.value : [];
+        const dora     = doraData.status     === 'fulfilled' ? doraData.value     : {};
+        const doraPrev = prevDoraData.status === 'fulfilled' ? prevDoraData.value : {};
+        const sec      = secData.status      === 'fulfilled' ? secData.value      : {};
+        const tests    = testData.status     === 'fulfilled' ? testData.value     : [];
+        // rawRuns already included in dora from getDoraMetrics — no extra DB call needed
+        const runs     = dora.rawRuns || [];
 
         const PDFDocument = require('pdfkit');
         const doc = new PDFDocument({ margin: 0, size: 'A4', bufferPages: true });
@@ -760,7 +756,7 @@ app.get('/api/reports/download', expensiveLimiter, async (req, res) => {
         doc.pipe(res);
 
         const { generateReport } = require('../services/pdfReport');
-        generateReport(doc, { repository, dora, sec, runs, tests });
+        generateReport(doc, { repository, dora, doraPrev, sec, runs, tests });
 
         doc.end();
     } catch (error) {
@@ -790,6 +786,31 @@ app.get('/api/metrics/trend/:name', async (req, res) => {
 // Metrics Routes (DORA)
 // --------------------------------------------------------------------------
 
+// In-memory DORA cache — avoids repeated DB hits when switching ranges
+// TTL: 2 minutes. Keyed by userId:repo:days.
+const _doraCache = new Map();
+const _DORA_TTL = 2 * 60 * 1000;
+function _doraCacheGet(key) {
+    const entry = _doraCache.get(key);
+    if (!entry) return null;
+    if (Date.now() - entry.ts > _DORA_TTL) { _doraCache.delete(key); return null; }
+    return entry.data;
+}
+function _doraCacheSet(key, data) {
+    // Keep map bounded — evict oldest if over 200 entries
+    if (_doraCache.size >= 200) {
+        const oldest = _doraCache.keys().next().value;
+        _doraCache.delete(oldest);
+    }
+    _doraCache.set(key, { data, ts: Date.now() });
+}
+// Invalidate cache for a repo when a sync completes
+function _doraCacheInvalidate(userId, repo) {
+    for (const key of _doraCache.keys()) {
+        if (key.startsWith(`${userId}:${repo}:`)) _doraCache.delete(key);
+    }
+}
+
 // GET /api/metrics/live — returns real-time pipeline activity snapshot
 app.get('/api/metrics/live', async (req, res) => {
     try {
@@ -816,7 +837,6 @@ app.get('/api/metrics/dora/:repo', async (req, res) => {
     const repo = (repoParam === 'all' || repoParam === 'null' || !repoParam) ? null : repoParam;
     const range = (req.query.range || '7d').toString();
 
-    // Support explicit ?days= override for trend comparison fetches
     let days = parseInt(req.query.days, 10) || 0;
     if (!days) {
         if (range === '24h') days = 1;
@@ -825,7 +845,12 @@ app.get('/api/metrics/dora/:repo', async (req, res) => {
         else days = 7;
     }
 
+    const cacheKey = `${userId}:${repo || 'all'}:${days}`;
+    const cached = _doraCacheGet(cacheKey);
+    if (cached) return res.json(cached);
+
     const data = await metricsService.getDoraMetrics(repo, days, userId);
+    _doraCacheSet(cacheKey, data);
     return res.json(data);
   } catch (error) {
     console.error('DORA metrics error:', error);
@@ -881,6 +906,14 @@ app.post('/api/security/scan/trivy', expensiveLimiter, async (req, res) => {
 
             // Persist to DB so AI insights and security summary can read them
             const results = scanResult.vulnerabilities || [];
+            // Derive scanner prefixes from actual results, then clear stale rows before inserting
+            const scannerPrefixes = [...new Set(
+                results.map(v => {
+                    const s = v.scanner || (v.type === 'secret' ? 'trivy:secret' : v.type === 'misconfiguration' ? 'trivy:config' : 'trivy:vuln');
+                    return s.split(':')[0]; // e.g. 'trivy' from 'trivy:vuln'
+                })
+            )];
+            await Promise.all(scannerPrefixes.map(prefix => securityService.clearScanResults(userId, repoClean, prefix)));
             for (const v of results) {
                 try {
                     await securityService.addVulnerability(
@@ -1475,6 +1508,8 @@ app.post('/api/metrics/dora/sync', expensiveLimiter, async (req, res) => {
 
     await ensureGithub(req);
     const result = await metricsService.syncWorkflowRunsFromGitHub(repository, days, userId);
+    // Invalidate server-side DORA cache so next fetch gets fresh data
+    _doraCacheInvalidate(userId, repository);
     return res.json({ success: true, ...result });
   } catch (error) {
     // Timeout or connection errors are non-fatal — client retries on next load

@@ -351,8 +351,8 @@ const Dashboard = () => {
         const days = range === '24h' ? 1 : range === '7d' ? 7 : 30;
         if (isManual) setRefreshing(true);
         try {
-            // Sync first so workflow_runs table is populated, then fetch
-            await api.syncDoraMetrics(selectedRepo, days).catch(() => {});
+            // Fire sync in background — never block the fetch on it
+            api.syncDoraMetrics(selectedRepo, days).catch(() => {});
             const [curr, full] = await Promise.all([
                 api.getDoraMetrics(selectedRepo, range),
                 api.getDoraMetrics(selectedRepo, days * 2),

@@ -102,8 +102,8 @@ function getGemini() {
     if (Date.now() < _geminiQuotaExhaustedUntil) return null;
     if (!_gemini) {
         const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-        // gemini-2.5-flash-lite: highest free tier quota (1000 RPD, 15 RPM) + newest generation
-        _gemini = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
+        // gemini-2.0-flash-lite: highest free tier quota (1500 RPD, 30 RPM) — do NOT use 2.5-flash-lite (only 20 RPD free)
+        _gemini = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-lite' });
     }
     return _gemini;
 }

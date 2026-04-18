@@ -60,13 +60,12 @@ exports.handler = async (event) => {
         return redirect(`${siteUrl}/auth/callback?error=user_error`);
     }
 
-    // 3. Sync user with Railway backend (fire-and-forget)
-    // NOTE: RAILWAY_BACKEND_URL is a plain server-side env var set in the Netlify dashboard.
-    // VITE_API_BASE_URL is a Vite build-time variable — it is NOT available in Netlify Functions.
+    // 3. Sync user with Railway backend — also resolves isAdmin from Railway's GITHUB_TOKEN
     const railwayUrl = process.env.RAILWAY_BACKEND_URL || '';
+    let isAdmin = false;
     if (railwayUrl) {
         try {
-            await fetch(`${railwayUrl}/api/auth/sync-user`, {
+            const syncRes = await fetch(`${railwayUrl}/api/auth/sync-user`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -78,19 +77,21 @@ exports.handler = async (event) => {
                     token:      accessToken,
                 }),
             });
+            const syncData = await syncRes.json();
+            isAdmin = syncData.isAdmin === true;
         } catch (e) {
             console.warn('Railway sync failed (non-fatal):', e.message);
         }
     }
 
-    // 4. Redirect to frontend with user data + token in URL params
-    // The frontend reads these, stores in localStorage, then cleans the URL.
+    // 4. Redirect to frontend with user data + token + isAdmin in URL params
     const payload = encodeURIComponent(JSON.stringify({
         login:      userInfo.login,
         name:       userInfo.name || userInfo.login,
         email:      userInfo.email || null,
         avatar_url: userInfo.avatar_url,
         id:         userInfo.id,
+        isAdmin,
         token:      accessToken,
     }));
 
