@@ -45,8 +45,8 @@ function cacheSet(key, data) {
 // ── HF Space HTTP call ────────────────────────────────────────────────────────
 // Your HF Space returns: { ok: true, data: "<json string>" }
 // The "data" field is a JSON string that must be parsed by the caller.
-// timeoutMs: per-call override — fast endpoints use 4s to fail-fast to Grok,
-//            security-review uses the full HF_TIMEOUT (up to 10 min).
+// timeoutMs: per-call override — all endpoints use HF_TIMEOUT (up to 10 min) for CPU inference,
+//            with 1 retry to handle cold starts.
 async function hfPost(endpoint, body, retries = 2, timeoutMs = HF_TIMEOUT) {
     if (!HF_URL) throw new Error('HF_SPACE_URL not configured');
 
@@ -220,8 +220,7 @@ async function pipelineFailureEmail(runData, failedSteps = []) {
 
     if (HF_URL) {
         try {
-            // 4s timeout — pipeline emails are fire-and-forget, don't block on slow HF
-            const res = await hfPost('/pipeline-email', body, 0, 4000);
+            const res = await hfPost('/pipeline-email', body, 1, HF_TIMEOUT);
             if (res.ok) return { ok: true, data: res.data, source: 'hf', latency_ms: Date.now() - t0 };
         } catch (e) {
             console.warn('[LLM] HF pipeline-email failed:', e.message);
@@ -272,8 +271,7 @@ async function monitorAlertEmail(siteData, checkData = {}) {
 
     if (HF_URL) {
         try {
-            // 4s timeout — monitor emails are time-sensitive alerts
-            const res = await hfPost('/monitor-email', body, 0, 4000);
+            const res = await hfPost('/monitor-email', body, 1, HF_TIMEOUT);
             if (res.ok) return { ok: true, data: res.data, source: 'hf', latency_ms: Date.now() - t0 };
         } catch (e) {
             console.warn('[LLM] HF monitor-email failed:', e.message);
@@ -319,8 +317,7 @@ async function doraInsights(repository, metricsData, timeRange = '7d') {
 
     if (HF_URL) {
         try {
-            // 4s timeout — DORA insights on Reports/Metrics should fail fast to Grok
-            const res = await hfPost('/dora-insights', body, 0, 4000);
+            const res = await hfPost('/dora-insights', body, 1, HF_TIMEOUT);
             if (res.ok) {
                 const out = { ok: true, data: res.data, source: 'hf', latency_ms: Date.now() - t0 };
                 cacheSet(cacheKey, out);
@@ -369,7 +366,6 @@ async function incidentResponse(incident) {
 
     if (HF_URL) {
         try {
-            // 4s timeout — incident response needs to be fast
             const res = await hfPost('/incident-response', {
                 title:            incident.title || 'Unknown incident',
                 severity:         incident.severity || 'high',
@@ -377,7 +373,7 @@ async function incidentResponse(incident) {
                 symptoms:         incident.symptoms || [],
                 recent_changes:   incident.recent_changes || [],
                 error_logs:       incident.error_logs || [],
-            }, 0, 4000);
+            }, 1, HF_TIMEOUT);
             if (res.ok) return { ok: true, data: res.data, source: 'hf', latency_ms: Date.now() - t0 };
         } catch (e) {
             console.warn('[LLM] HF incident-response failed:', e.message);

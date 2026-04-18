@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion, useScroll, useTransform } from 'framer-motion';
+import { motion, useScroll, useTransform, useSpring } from 'framer-motion';
 import {
   Activity,
   ArrowRight,
@@ -33,7 +33,7 @@ const shell = {
   margin: '0 auto',
 };
 
-const sectionEase = [0.16, 1, 0.3, 1];
+const sectionEase = [0.25, 0.46, 0.45, 0.94];
 const glassBase = 'rgba(28, 28, 30, 0.4)';
 const glassSoft = 'rgba(28, 28, 30, 0.3)';
 const glassStrong = 'rgba(28, 28, 30, 0.52)';
@@ -83,43 +83,28 @@ const storyBlocks = [
 ];
 
 const workflow = [
-  { label: 'Commit', icon: GitBranch, accent: '#60A5FA' },
-  { label: 'Verify', icon: CheckCircle2, accent: '#34D399' },
-  { label: 'Protect', icon: Lock, accent: '#FBBF24' },
-  { label: 'Observe', icon: Radar, accent: '#3B82F6' },
+  { label: 'Commit', icon: GitBranch, accent: '#60A5FA', desc: 'Code changes trigger delivery flow' },
+  { label: 'Verify', icon: CheckCircle2, accent: '#34D399', desc: 'Builds and tests run automatically' },
+  { label: 'Protect', icon: Lock, accent: '#FBBF24', desc: 'Security scans validate every release' },
+  { label: 'Observe', icon: Radar, accent: '#3B82F6', desc: 'Monitor health across all environments' },
 ];
 
 
-const featureCardsPrimary = [
-  {
-    title: 'Smart testing',
-    body: 'Automated suites, richer reporting, and better visibility into what changed before a release goes live.',
-    icon: Cpu,
-    accent: '#60A5FA',
-  },
-  {
-    title: 'Security checks',
-    body: 'Static analysis, vulnerability signals, and release-aware security posture stay inside the same delivery story.',
-    icon: ShieldCheck,
-    accent: '#34D399',
-  },
-  {
-    title: 'Custom notifications',
-    body: 'Keep teams informed with lightweight event updates for pipeline changes, failures, recoveries, and releases.',
-    icon: Bell,
-    accent: '#3B82F6',
-  },
-];
-
-const featureCardsExtended = [
-  { title: 'Unified dashboard', body: 'Track projects, environments, and release health from one clear operating view.', icon: BarChart3, accent: '#60A5FA' },
-  { title: 'Fast onboarding', body: 'Connect repositories and start seeing delivery signals quickly instead of building dashboards from scratch.', icon: Rocket, accent: '#FBBF24' },
-  { title: 'Role control', body: 'Give engineers, leads, and operators the visibility they need without exposing everything to everyone.', icon: Users, accent: '#3B82F6' },
-  { title: 'Real analytics', body: 'Understand build times, stability, release velocity, and delivery trends in a cleaner reporting layer.', icon: Activity, accent: '#34D399' },
-  { title: 'GitOps ready', body: 'Fit naturally into source-controlled infrastructure and modern release workflows.', icon: GitBranch, accent: '#60A5FA' },
-  { title: 'CLI support', body: 'Extend operational workflows with automation hooks and scripting-friendly controls.', icon: Code2, accent: '#FBBF24' },
-  { title: 'Extensible plugins', body: 'Adapt the platform with custom integrations and workflow extensions where your team needs them.', icon: Plug, accent: '#3B82F6' },
-  { title: 'Instant alerts', body: 'React faster when builds fail, environments drift, or production signals change.', icon: Zap, accent: '#34D399' },
+const allFeatures = [
+  { title: 'Instant monitoring',    body: 'Track pipeline state, production health, and change impact without leaving the workspace.',                          icon: Radar,       accent: '#3B82F6' },
+  { title: 'Secure by design',      body: 'Security posture becomes part of how releases are understood, not an isolated afterthought.',                       icon: ShieldCheck,  accent: '#10B981' },
+  { title: 'Seamless rollbacks',    body: 'When something shifts in production, teams can respond with context and confidence.',                               icon: Zap,          accent: '#60A5FA' },
+  { title: 'Smart testing',         body: 'Automated suites, richer reporting, and better visibility into what changed before a release goes live.',           icon: Cpu,          accent: '#60A5FA' },
+  { title: 'Security checks',       body: 'Static analysis, vulnerability signals, and release-aware security posture stay inside the same delivery story.',  icon: Lock,         accent: '#34D399' },
+  { title: 'Custom notifications',  body: 'Keep teams informed with lightweight event updates for pipeline changes, failures, recoveries, and releases.',      icon: Bell,         accent: '#3B82F6' },
+  { title: 'Unified dashboard',     body: 'Track projects, environments, and release health from one clear operating view.',                                  icon: BarChart3,    accent: '#60A5FA' },
+  { title: 'Fast onboarding',       body: 'Connect repositories and start seeing delivery signals quickly instead of building dashboards from scratch.',       icon: Rocket,       accent: '#FBBF24' },
+  { title: 'Role control',          body: 'Give engineers, leads, and operators the visibility they need without exposing everything to everyone.',            icon: Users,        accent: '#3B82F6' },
+  { title: 'Real analytics',        body: 'Understand build times, stability, release velocity, and delivery trends in a cleaner reporting layer.',           icon: Activity,     accent: '#34D399' },
+  { title: 'GitOps ready',          body: 'Fit naturally into source-controlled infrastructure and modern release workflows.',                                 icon: GitBranch,    accent: '#60A5FA' },
+  { title: 'CLI support',           body: 'Extend operational workflows with automation hooks and scripting-friendly controls.',                               icon: Code2,        accent: '#FBBF24' },
+  { title: 'Extensible plugins',    body: 'Adapt the platform with custom integrations and workflow extensions where your team needs them.',                   icon: Plug,         accent: '#3B82F6' },
+  { title: 'Instant alerts',        body: 'React faster when builds fail, environments drift, or production signals change.',                                  icon: Zap,          accent: '#34D399' },
 ];
 
 const howItWorksSteps = [
@@ -146,26 +131,7 @@ const howItWorksSteps = [
   },
 ];
 
-const howItWorksCards = [
-  {
-    title: 'Instant monitoring',
-    body: 'Track pipeline state, production health, and change impact without leaving the workspace.',
-    icon: Radar,
-    accent: '#3B82F6',
-  },
-  {
-    title: 'Secure by design',
-    body: 'Security posture becomes part of how releases are understood, not an isolated afterthought.',
-    icon: ShieldCheck,
-    accent: '#10B981',
-  },
-  {
-    title: 'Seamless rollbacks',
-    body: 'When something shifts in production, teams can respond with context and confidence.',
-    icon: Zap,
-    accent: '#3B82F6',
-  },
-];
+const howItWorksCards = [];
 
 const testimonials = [
   {
@@ -248,11 +214,6 @@ const demoScanners = [
   { name: 'GitHub Adv', findings: 0, color: '#34D399', status: 'Passed' },
 ];
 
-const demoPipelineRuns = [
-  { repo: 'pipelinexr/web', branch: 'main', status: 'success', color: '#34D399', duration: '4m 12s' },
-  { repo: 'pipelinexr/api', branch: 'release', status: 'running', color: '#60A5FA', duration: '2m 08s' },
-  { repo: 'pipelinexr/worker', branch: 'hotfix', status: 'failed', color: '#F87171', duration: '6m 01s' },
-];
 
 const cinematicChapters = [
   {
@@ -291,7 +252,7 @@ function CinematicScrollSection({ scrollContainerRef }) {
           initial={{ opacity: 0, y: 24 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, amount: 0.5 }}
-          transition={{ duration: 0.75, ease: sectionEase }}
+          transition={{ duration: 1.05, ease: sectionEase }}
         >
           <div
             className="inline-flex items-center gap-2 rounded-full px-3 py-1.5"
@@ -318,7 +279,7 @@ function CinematicScrollSection({ scrollContainerRef }) {
                 initial={{ opacity: 0, x: -16 }}
                 whileInView={{ opacity: 1, x: 0 }}
                 viewport={{ once: true, amount: 0.5 }}
-                transition={{ duration: 0.6, delay: index * 0.12, ease: sectionEase }}
+                transition={{ duration: 1.1, delay: index * 0.12, ease: sectionEase }}
                 className="flex items-start gap-4"
               >
                 <div
@@ -584,7 +545,7 @@ function MiniMetricsPreview() {
                   key={`${chart.title}-${index}`}
                   initial={{ height: 0, opacity: 0.3 }}
                   animate={{ height: `${Math.max(value, 10)}%`, opacity: 1 }}
-                  transition={{ duration: 0.55, delay: 0.25 + index * 0.03, ease: sectionEase }}
+                  transition={{ duration: 0.85, delay: 0.25 + index * 0.03, ease: sectionEase }}
                   className="flex-1 rounded-t-[10px]"
                   style={{
                     background:
@@ -723,7 +684,7 @@ function MiniSecurityPreview() {
                   key={index}
                   initial={{ height: 0, opacity: 0.3 }}
                   animate={{ height: `${value * 10}%`, opacity: 1 }}
-                  transition={{ duration: 0.5, delay: 0.35 + index * 0.03, ease: sectionEase }}
+                  transition={{ duration: 0.8, delay: 0.35 + index * 0.03, ease: sectionEase }}
                   className="flex-1 rounded-t-[10px]"
                   style={{
                     background:
@@ -742,81 +703,133 @@ function MiniSecurityPreview() {
 }
 
 function MiniDashboardPreview() {
+  // Static demo data matching Dashboard's visual style
+  const kpis = [
+    { title: 'Deployment Frequency', value: '5.2/day', subtitle: 'Last 7d', color: '#3B82F6', trend: 12, trendUp: true },
+    { title: 'Success Rate', value: '94%', subtitle: 'Pipeline stability', color: '#F59E0B', trend: 3, trendUp: true },
+    { title: 'Mean Build Duration', value: '3.8m', subtitle: 'Execution speed', color: '#8B5CF6', trend: 8, trendUp: false },
+    { title: 'Avg Wait Time', value: '0.4h', subtitle: 'Queue efficiency', color: '#6366F1', trend: 15, trendUp: false },
+  ];
+
+  const depLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const depData   = [3, 5, 4, 7, 6, 9, 8];
+  const srData    = [88, 91, 90, 94, 95, 98, 97];
+
   return (
-    <div className="grid gap-4">
-      <div className="grid gap-4 sm:grid-cols-3">
-        {[
-          { label: 'Deployments', value: '247', accent: '#60A5FA' },
-          { label: 'Healthy builds', value: '98.5%', accent: '#34D399' },
-          { label: 'Open risks', value: '3', accent: '#FBBF24' },
-        ].map((item, index) => (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+      {/* KPI Row — 4 cards matching Dashboard StatCard style */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+        {kpis.map((k, i) => (
           <motion.div
-            key={item.label}
-            initial={{ opacity: 0, y: 18 }}
+            key={k.title}
+            initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.3 + index * 0.08, ease: sectionEase }}
-            className="rounded-[24px] p-4"
+            transition={{ duration: 0.85, delay: 0.2 + i * 0.07, ease: sectionEase }}
             style={{
-              background: glassSoft,
-              border: borderSubtle,
-              backdropFilter: 'blur(18px) saturate(150%)',
+              background: 'rgba(28,28,30,0.4)',
+              backdropFilter: 'blur(20px) saturate(180%)',
+              border: '1px solid rgba(255,255,255,0.08)',
+              borderRadius: 16,
+              padding: '16px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 10,
+              position: 'relative',
+              overflow: 'hidden',
             }}
           >
-            <div className="text-[11px] uppercase tracking-[0.14em]" style={{ color: textSoft }}>
-              {item.label}
+            {/* Ambient glow */}
+            <div style={{ position: 'absolute', top: -16, right: -16, width: 72, height: 72, background: k.color, filter: 'blur(40px)', opacity: 0.07, pointerEvents: 'none' }} />
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ width: 28, height: 28, borderRadius: 8, background: `${k.color}18`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ width: 10, height: 10, borderRadius: '50%', background: k.color, opacity: 0.8 }} />
+              </div>
+              <div style={{ fontSize: 10, fontWeight: 600, color: k.trendUp ? '#34D399' : '#F87171', background: k.trendUp ? 'rgba(52,211,153,0.1)' : 'rgba(248,113,113,0.1)', padding: '3px 7px', borderRadius: 7, display: 'flex', alignItems: 'center', gap: 3 }}>
+                {k.trendUp ? '↑' : '↓'} {k.trend}%
+              </div>
             </div>
-            <div className="mt-3 text-2xl font-semibold tracking-[-0.05em]" style={{ color: item.accent }}>
-              {item.value}
+            <div>
+              <div style={{ fontSize: 20, fontWeight: 700, color: '#fff', letterSpacing: '-0.03em', lineHeight: 1 }}>{k.value}</div>
+              <div style={{ fontSize: 10, fontWeight: 500, color: 'rgba(255,255,255,0.5)', marginTop: 4 }}>{k.title}</div>
+              <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)', marginTop: 2 }}>{k.subtitle}</div>
             </div>
           </motion.div>
         ))}
       </div>
 
-      <div
-        className="rounded-[28px] p-5"
-        style={{
-          background: glassSoft,
-          border: borderSubtle,
-          backdropFilter: 'blur(18px) saturate(150%)',
-        }}
-      >
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="text-sm font-semibold text-white">Release pulse</div>
-            <div className="mt-1 text-xs" style={{ color: textSoft }}>
-              Unified dashboard preview
-            </div>
+      {/* Charts Row — Deployment Volume + Success Rate, matching Dashboard layout */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+
+        {/* Deployment Volume bar chart */}
+        <div style={{ background: 'rgba(28,28,30,0.4)', backdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 20, padding: '16px 18px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: '#fff' }}>Deployment Volume</div>
+            <div style={{ marginLeft: 'auto', fontSize: 9, fontWeight: 700, background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.4)', padding: '2px 7px', borderRadius: 6 }}>7d</div>
           </div>
-          <div
-            className="rounded-full px-3 py-1 text-[11px] font-semibold"
-            style={{ background: 'rgba(96,165,250,0.14)', color: '#93C5FD' }}
-          >
-            Live
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 5, height: 72 }}>
+            {depData.map((v, i) => (
+              <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, height: '100%', justifyContent: 'flex-end' }}>
+                <motion.div
+                  initial={{ height: 0 }}
+                  animate={{ height: `${(v / Math.max(...depData)) * 100}%` }}
+                  transition={{ duration: 1.0, delay: 0.3 + i * 0.05, ease: sectionEase }}
+                  style={{
+                    width: '100%', borderRadius: '6px 6px 0 0',
+                    background: i === depData.length - 1
+                      ? 'linear-gradient(180deg, #3B82F6 0%, rgba(59,130,246,0.3) 100%)'
+                      : 'linear-gradient(180deg, rgba(255,255,255,0.18) 0%, rgba(255,255,255,0.06) 100%)',
+                  }}
+                />
+                <span style={{ fontSize: 8, color: 'rgba(255,255,255,0.25)' }}>{depLabels[i].charAt(0)}</span>
+              </div>
+            ))}
           </div>
         </div>
 
-        <div className="mt-6 flex h-36 items-end gap-3">
-          {[30, 48, 42, 66, 60, 92, 76].map((height, index) => (
-            <div key={height + index} className="flex flex-1 flex-col items-center gap-3">
-              <motion.div
-                initial={{ height: 0, opacity: 0.35 }}
-                animate={{ height: `${height}%`, opacity: 1 }}
-                transition={{ duration: 0.7, delay: 0.45 + index * 0.05, ease: sectionEase }}
-                className="w-full rounded-t-[18px]"
-                style={{
-                  background:
-                    index === 5
-                      ? 'linear-gradient(180deg, #93C5FD 0%, #3B82F6 100%)'
-                      : 'linear-gradient(180deg, rgba(255,255,255,0.26) 0%, rgba(255,255,255,0.08) 100%)',
-                }}
-              />
-              <span className="text-[11px]" style={{ color: 'rgba(255,255,255,0.22)' }}>
-                {['M', 'T', 'W', 'T', 'F', 'S', 'S'][index]}
-              </span>
-            </div>
-          ))}
+        {/* Pipeline Success Rate line chart */}
+        <div style={{ background: 'rgba(28,28,30,0.4)', backdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 20, padding: '16px 18px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: '#fff' }}>Pipeline Success Rate</div>
+            <div style={{ marginLeft: 'auto', fontSize: 9, fontWeight: 700, background: 'rgba(16,185,129,0.12)', color: '#10B981', padding: '2px 7px', borderRadius: 6 }}>Stability</div>
+          </div>
+          {/* SVG sparkline matching the line chart style */}
+          <svg viewBox="0 0 200 72" style={{ width: '100%', height: 72, overflow: 'visible' }}>
+            <defs>
+              <linearGradient id="srGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#10B981" stopOpacity="0.25" />
+                <stop offset="100%" stopColor="#10B981" stopOpacity="0" />
+              </linearGradient>
+            </defs>
+            {(() => {
+              const min = Math.min(...srData) - 2;
+              const max = Math.max(...srData) + 2;
+              const pts = srData.map((v, i) => {
+                const x = (i / (srData.length - 1)) * 200;
+                const y = 72 - ((v - min) / (max - min)) * 68;
+                return `${x},${y}`;
+              });
+              const pathD = `M ${pts.join(' L ')}`;
+              const areaD = `M 0,72 L ${pts.join(' L ')} L 200,72 Z`;
+              return (
+                <>
+                  <path d={areaD} fill="url(#srGrad)" />
+                  <path d={pathD} fill="none" stroke="#10B981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  {srData.map((v, i) => {
+                    const x = (i / (srData.length - 1)) * 200;
+                    const y = 72 - ((v - min) / (max - min)) * 68;
+                    return <circle key={i} cx={x} cy={y} r={i === srData.length - 1 ? 4 : 0} fill="#10B981" />;
+                  })}
+                </>
+              );
+            })()}
+          </svg>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
+            {depLabels.map(l => <span key={l} style={{ fontSize: 8, color: 'rgba(255,255,255,0.25)' }}>{l.charAt(0)}</span>)}
+          </div>
         </div>
       </div>
+
     </div>
   );
 }
@@ -914,7 +927,7 @@ function MiniMonitoringPreview() {
                 key={index}
                 initial={{ height: 0, opacity: 0.3 }}
                 animate={{ height: `${value}%`, opacity: 1 }}
-                transition={{ duration: 0.5, delay: 0.3 + index * 0.03, ease: sectionEase }}
+                transition={{ duration: 0.8, delay: 0.3 + index * 0.03, ease: sectionEase }}
                 className="flex-1 rounded-t-[10px]"
                 style={{
                   background:
@@ -997,7 +1010,7 @@ function MiniPipelinesPreview() {
               key={index}
               initial={{ height: 0, opacity: 0.3 }}
               animate={{ height: `${value * 10}%`, opacity: 1 }}
-              transition={{ duration: 0.5, delay: 0.2 + index * 0.02, ease: sectionEase }}
+              transition={{ duration: 0.8, delay: 0.2 + index * 0.02, ease: sectionEase }}
               className="flex-1 rounded-t-[10px]"
               style={{
                 background:
@@ -1010,36 +1023,6 @@ function MiniPipelinesPreview() {
         </div>
       </div>
 
-      <div className="mt-4 space-y-3">
-        {demoPipelineRuns.map((run) => (
-          <div
-            key={`${run.repo}-${run.branch}`}
-            className="rounded-[18px] p-4"
-            style={{
-              background: glassSoft,
-              border: borderSubtle,
-            }}
-          >
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <div className="text-sm font-semibold text-white">{run.repo}</div>
-                <div className="mt-1 text-[11px]" style={{ color: textSoft }}>
-                  {run.branch} · {run.duration}
-                </div>
-              </div>
-              <div
-                className="rounded-full px-3 py-1 text-[11px] font-semibold uppercase"
-                style={{
-                  background: `${run.color}14`,
-                  color: run.color,
-                }}
-              >
-                {run.status}
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
     </div>
   );
 }
@@ -1054,10 +1037,12 @@ const LandingPage = () => {
     container: pageRef,
   });
 
-  const heroY = useTransform(scrollYProgress, [0, 0.3], [0, -70]);
-  const heroOpacity = useTransform(scrollYProgress, [0, 0.24], [1, 0.4]);
-  const orbOneY = useTransform(scrollYProgress, [0, 1], [0, -120]);
-  const orbTwoY = useTransform(scrollYProgress, [0, 1], [0, 80]);
+  const smoothProgress = useSpring(scrollYProgress, { stiffness: 60, damping: 20, restDelta: 0.001 });
+
+  const heroY = useTransform(smoothProgress, [0, 0.4], [0, -40]);
+  const heroOpacity = useTransform(smoothProgress, [0, 0.35], [1, 0.3]);
+  const orbOneY = useTransform(smoothProgress, [0, 1], [0, -80]);
+  const orbTwoY = useTransform(smoothProgress, [0, 1], [0, 50]);
   const progressScale = useTransform(scrollYProgress, [0, 1], [0, 1]);
 
   return (
@@ -1182,16 +1167,16 @@ const LandingPage = () => {
           </div>
         </header>
 
-        <main className="px-5 pt-10 sm:px-6 md:px-8 md:pt-16 xl:px-10">
+        <main className="px-5 pt-6 sm:px-6 md:px-8 md:pt-8 xl:px-10">
           <MotionDiv
             style={{ ...shell, y: heroY, opacity: heroOpacity }}
-            className="grid min-h-[calc(100vh-8rem)] items-center gap-12 pt-6 md:pt-10 lg:grid-cols-[1.05fr_0.95fr]"
+            className="grid items-center gap-8 pt-10 lg:grid-cols-[1.05fr_0.95fr] lg:gap-10"
           >
             <div className="min-w-0">
               <MotionDiv
                 initial={{ opacity: 0, y: 18 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.7, ease: sectionEase }}
+                transition={{ duration: 1.0, ease: sectionEase }}
                 className="inline-flex items-center gap-2 rounded-full px-3 py-1.5"
                 style={{
                   background: 'rgba(59,130,246,0.10)',
@@ -1206,9 +1191,9 @@ const LandingPage = () => {
               <MotionDiv
                 initial={{ opacity: 0, y: 28 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.9, delay: 0.08, ease: sectionEase }}
-                className="mt-6 max-w-4xl text-[3rem] font-semibold tracking-[-0.07em] text-white sm:text-[3.8rem] md:text-[5rem] lg:text-[5.7rem]"
-                style={{ lineHeight: 0.94 }}
+                transition={{ duration: 1.1, delay: 0.08, ease: sectionEase }}
+                className="mt-4 text-[2.2rem] font-semibold tracking-[-0.06em] text-white sm:text-[2.8rem] md:text-[3.4rem]"
+                style={{ lineHeight: 1.0 }}
               >
                 Complete CI/CD visibility,
                 <span className="block" style={{ color: '#E6EEFF', textShadow: '0 0 34px rgba(96,165,250,0.16)' }}>
@@ -1219,8 +1204,8 @@ const LandingPage = () => {
               <MotionDiv
                 initial={{ opacity: 0, y: 28 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.9, delay: 0.16, ease: sectionEase }}
-                className="mt-6 max-w-2xl text-base leading-8 md:text-lg"
+                transition={{ duration: 1.1, delay: 0.16, ease: sectionEase }}
+                className="mt-4 max-w-lg text-sm leading-7"
                 style={{ color: 'rgba(255,255,255,0.52)' }}
               >
                 PipelineXR provides real-time pipeline monitoring, DORA metrics, security scanning, and uptime tracking—all in one unified dashboard for engineering teams.
@@ -1229,15 +1214,15 @@ const LandingPage = () => {
               <MotionDiv
                 initial={{ opacity: 0, y: 28 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.9, delay: 0.24, ease: sectionEase }}
-                className="mt-9 flex flex-col gap-3 sm:flex-row"
+                transition={{ duration: 1.1, delay: 0.24, ease: sectionEase }}
+                className="mt-6 flex flex-col gap-2.5 sm:flex-row"
               >
                 <MotionButton
                   onClick={() => navigate('/login')}
                   whileHover={{ y: -3, scale: 1.01 }}
                   whileTap={{ scale: 0.985 }}
                   transition={{ duration: 0.22 }}
-                  className="inline-flex items-center justify-center gap-2 rounded-full px-6 py-3.5 text-sm font-semibold"
+                  className="inline-flex items-center justify-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold"
                   style={{
                     background: '#F5F7FB',
                     color: '#05070C',
@@ -1253,7 +1238,7 @@ const LandingPage = () => {
                   whileHover={{ y: -3, backgroundColor: 'rgba(255,255,255,0.07)' }}
                   whileTap={{ scale: 0.985 }}
                   transition={{ duration: 0.22 }}
-                  className="inline-flex items-center justify-center gap-2 rounded-full px-6 py-3.5 text-sm font-semibold"
+                  className="inline-flex items-center justify-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold"
                   style={{
                     background: 'rgba(255,255,255,0.04)',
                     color: 'rgba(255,255,255,0.82)',
@@ -1269,15 +1254,15 @@ const LandingPage = () => {
               <MotionDiv
                 initial={{ opacity: 0, y: 28 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.9, delay: 0.32, ease: sectionEase }}
-                className="mt-12 grid gap-4 sm:grid-cols-3"
+                transition={{ duration: 1.1, delay: 0.32, ease: sectionEase }}
+                className="mt-6 grid gap-3 sm:grid-cols-3"
               >
                 {heroMetrics.map((metric) => (
                   <MotionDiv
                     key={metric.label}
                     whileHover={{ y: -4 }}
                     transition={{ duration: 0.22 }}
-                    className="rounded-[24px] p-5"
+                    className="rounded-[18px] px-4 py-3"
                     style={{
                       background: glassSoft,
                       border: borderSubtle,
@@ -1285,8 +1270,8 @@ const LandingPage = () => {
                       boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03)',
                     }}
                   >
-                    <div className="text-2xl font-semibold tracking-[-0.05em] text-white">{metric.value}</div>
-                    <div className="mt-2 text-sm leading-6" style={{ color: textSoft }}>
+                    <div className="text-xl font-semibold tracking-[-0.05em] text-white">{metric.value}</div>
+                    <div className="mt-1 text-xs leading-5" style={{ color: textSoft }}>
                       {metric.label}
                     </div>
                   </MotionDiv>
@@ -1297,22 +1282,21 @@ const LandingPage = () => {
             <MotionDiv
               initial={{ opacity: 0, y: 40, scale: 0.96 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
-              transition={{ duration: 1, delay: 0.14, ease: sectionEase }}
-              className="relative"
+              transition={{ duration: 1.2, delay: 0.14, ease: sectionEase }}
+              className="relative hidden lg:block"
             >
               <div
-                className="absolute -inset-8 rounded-[40px]"
+                className="absolute -inset-6 rounded-[36px]"
                 style={{
                   background:
                     'radial-gradient(circle at 20% 20%, rgba(59,130,246,0.18), transparent 35%), radial-gradient(circle at 80% 10%, rgba(167,139,250,0.13), transparent 32%)',
                   filter: 'blur(28px)',
                 }}
               />
-
               <MotionDiv
-                animate={{ y: [0, -10, 0] }}
+                animate={{ y: [0, -8, 0] }}
                 transition={{ duration: 6.5, repeat: Infinity, ease: 'easeInOut' }}
-                className="relative overflow-hidden rounded-[34px] p-5 md:p-6"
+                className="relative overflow-hidden rounded-[28px] p-4"
                 style={{
                   background: glassStrong,
                   border: borderSoft,
@@ -1321,65 +1305,131 @@ const LandingPage = () => {
                   boxShadow: '0 36px 110px rgba(0,0,0,0.36)',
                 }}
               >
-                <div className="mb-5 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="h-2.5 w-2.5 rounded-full bg-[#FF5F57]" />
-                    <span className="h-2.5 w-2.5 rounded-full bg-[#FFBD2E]" />
-                    <span className="h-2.5 w-2.5 rounded-full bg-[#28C840]" />
+                <div className="mb-4 flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <span className="h-2 w-2 rounded-full bg-[#FF5F57]" />
+                    <span className="h-2 w-2 rounded-full bg-[#FFBD2E]" />
+                    <span className="h-2 w-2 rounded-full bg-[#28C840]" />
                   </div>
                   <div
-                    className="rounded-full px-3 py-1 text-[11px] font-medium"
+                    className="rounded-full px-2.5 py-0.5 text-[10px] font-medium"
                     style={{ background: 'rgba(255,255,255,0.04)', color: textSoft }}
                   >
                     release overview
                   </div>
                 </div>
-
-                <div className="grid gap-4">
-                  <MiniDashboardPreview />
-                </div>
+                <MiniDashboardPreview />
               </MotionDiv>
             </MotionDiv>
           </MotionDiv>
 
-          <section className="py-8 md:py-12">
+          <section className="py-12 md:py-16">
             <div style={shell}>
-              <div className="grid gap-3 sm:grid-cols-4">
-                {workflow.map((step, index) => (
-                  <MotionDiv
-                    key={step.label}
-                    initial={{ opacity: 0, y: 24 }}
-                    whileInView={{ opacity: 1, y: 0 }}
-                    viewport={{ once: true, amount: 0.7 }}
-                    transition={{ duration: 0.6, delay: index * 0.08, ease: sectionEase }}
-                    whileHover={{ y: -4 }}
-                    className="relative rounded-[28px] p-5"
-                    style={{
-                      background: glassSoft,
-                      border: borderSubtle,
-                      backdropFilter: 'blur(18px) saturate(150%)',
-                    }}
-                  >
-                    <div
-                      className="flex h-11 w-11 items-center justify-center rounded-2xl"
-                      style={{
-                        background: `${step.accent}18`,
-                        border: `1px solid ${step.accent}30`,
-                      }}
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true, amount: 0.5 }}
+                transition={{ duration: 1.1, ease: sectionEase }}
+                className="mb-8 text-center"
+              >
+                <h3 className="text-xl font-semibold text-white md:text-2xl">The PipelineXR Flow</h3>
+                <p className="mt-2 text-sm" style={{ color: textMuted }}>From code commit to production visibility</p>
+              </motion.div>
+              <div className="relative">
+                <div className="grid gap-4 sm:grid-cols-4">
+                  {workflow.map((step, index) => (
+                    <MotionDiv
+                      key={step.label}
+                      initial={{ opacity: 0, y: 32 }}
+                      whileInView={{ opacity: 1, y: 0 }}
+                      viewport={{ once: true, amount: 0.5 }}
+                      transition={{ duration: 1.1, delay: index * 0.1, ease: sectionEase }}
+                      whileHover={{ y: -6, transition: { duration: 0.2 } }}
+                      className="group relative"
                     >
-                      <step.icon className="h-5 w-5" style={{ color: step.accent }} />
-                    </div>
-                    <div className="mt-4 text-sm font-semibold text-white">{step.label}</div>
-                    {index < workflow.length - 1 && (
+                      {/* Glow effect */}
                       <div
-                        className="absolute right-[-10px] top-1/2 hidden h-px w-5 -translate-y-1/2 md:block"
-                        style={{
-                          background: 'linear-gradient(90deg, rgba(255,255,255,0.14), rgba(255,255,255,0.03))',
-                        }}
+                        className="absolute -inset-1 rounded-2xl opacity-0 blur-xl transition-opacity duration-300 group-hover:opacity-40"
+                        style={{ background: step.accent }}
                       />
-                    )}
-                  </MotionDiv>
-                ))}
+
+                      {/* Card */}
+                      <div
+                        className="relative rounded-2xl p-6"
+                        style={{
+                          background: glassBase,
+                          border: `1px solid ${step.accent}25`,
+                          backdropFilter: glassBackdrop,
+                        }}
+                      >
+                        {/* Step number */}
+                        <div
+                          className="absolute -top-3 -left-2 flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold"
+                          style={{
+                            background: step.accent,
+                            color: '#000',
+                          }}
+                        >
+                          {index + 1}
+                        </div>
+
+                        {/* Icon container */}
+                        <div
+                          className="flex h-14 w-14 items-center justify-center rounded-xl"
+                          style={{
+                            background: `${step.accent}15`,
+                            border: `1px solid ${step.accent}35`,
+                          }}
+                        >
+                          <step.icon className="h-7 w-7" style={{ color: step.accent }} />
+                        </div>
+
+                        {/* Label */}
+                        <div className="mt-4 text-lg font-bold text-white">{step.label}</div>
+
+                        {/* Description */}
+                        <div className="mt-2 text-sm leading-relaxed" style={{ color: textMuted }}>
+                          {step.desc}
+                        </div>
+
+                        {/* Progress indicator for last item */}
+                        {index === workflow.length - 1 && (
+                          <div
+                            className="mt-4 flex items-center gap-2 text-xs font-medium"
+                            style={{ color: step.accent }}
+                          >
+                            <div className="h-1.5 w-1.5 animate-pulse rounded-full" style={{ background: step.accent }} />
+                            Active monitoring
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Connector line */}
+                      {index < workflow.length - 1 && (
+                        <div className="pointer-events-none absolute right-0 top-1/2 z-10 hidden -translate-y-1/2 md:block" style={{ right: '-24px' }}>
+                          <svg width="48" height="24" viewBox="0 0 48 24" fill="none">
+                            <path
+                              d="M0 12H40M40 12L32 4M40 12L32 20"
+                              stroke={workflow[index + 1].accent}
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeOpacity="0.4"
+                            />
+                          </svg>
+                        </div>
+                      )}
+                    </MotionDiv>
+                  ))}
+                </div>
+
+                {/* Bottom accent line */}
+                <div
+                  className="mt-8 h-px w-full"
+                  style={{
+                    background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.1) 20%, rgba(255,255,255,0.1) 80%, transparent)',
+                  }}
+                />
               </div>
             </div>
           </section>
@@ -1398,7 +1448,7 @@ const LandingPage = () => {
                 initial={{ opacity: 0, y: 28 }}
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true, amount: 0.35 }}
-                transition={{ duration: 0.75, ease: sectionEase }}
+                transition={{ duration: 1.05, ease: sectionEase }}
                 className="text-center"
               >
                 <div
@@ -1470,106 +1520,139 @@ const LandingPage = () => {
                 ))}
               </div>
 
-              <div className="mt-16 grid gap-5 md:grid-cols-3">
-                {howItWorksCards.map((card, index) => (
-                  <motion.div
-                    key={card.title}
-                    initial={{ opacity: 0, y: 26 }}
-                    whileInView={{ opacity: 1, y: 0 }}
-                    viewport={{ once: true, amount: 0.45 }}
-                    transition={{ duration: 0.65, delay: index * 0.06, ease: sectionEase }}
-                    whileHover={{ y: -6 }}
-                    className="rounded-[30px] p-7"
-                    style={{
-                      background: 'rgba(18,20,27,0.82)',
-                      border: '1px solid rgba(255,255,255,0.07)',
-                    }}
-                  >
-                    <div
-                      className="flex h-12 w-12 items-center justify-center rounded-2xl"
-                      style={{
-                        background: `${card.accent}18`,
-                        border: `1px solid ${card.accent}30`,
-                      }}
-                    >
-                      <card.icon className="h-5 w-5" style={{ color: card.accent }} />
-                    </div>
-                    <h3 className="mt-5 text-2xl font-semibold tracking-[-0.04em] text-white">{card.title}</h3>
-                    <p className="mt-3 text-base leading-8" style={{ color: 'rgba(255,255,255,0.46)' }}>
-                      {card.body}
-                    </p>
-                  </motion.div>
-                ))}
-              </div>
+
             </div>
           </section>
 
-          <section className="py-16 md:py-24">
+          <section id="features" className="py-16 md:py-24">
             <div style={shell}>
-              <div className="mt-0 grid gap-5 md:grid-cols-3">
-                {featureCardsPrimary.map((card, index) => (
-                  <motion.div
-                    key={card.title}
-                    initial={{ opacity: 0, y: 26 }}
-                    whileInView={{ opacity: 1, y: 0 }}
-                    viewport={{ once: true, amount: 0.45 }}
-                    transition={{ duration: 0.65, delay: index * 0.06, ease: sectionEase }}
-                    whileHover={{ y: -6 }}
-                    className="rounded-[30px] p-7"
-                    style={{
-                      background: glassBase,
-                      border: borderSubtle,
-                      backdropFilter: 'blur(18px) saturate(150%)',
-                    }}
-                  >
-                    <div
-                      className="flex h-12 w-12 items-center justify-center rounded-2xl"
-                      style={{
-                        background: `${card.accent}18`,
-                        border: `1px solid ${card.accent}30`,
-                      }}
-                    >
-                      <card.icon className="h-5 w-5" style={{ color: card.accent }} />
-                    </div>
-                    <h3 className="mt-5 text-2xl font-semibold tracking-[-0.04em] text-white">{card.title}</h3>
-                    <p className="mt-3 text-base leading-8" style={{ color: 'rgba(255,255,255,0.46)' }}>
-                      {card.body}
-                    </p>
-                  </motion.div>
-                ))}
-              </div>
+              <div className="grid gap-16 lg:grid-cols-[1fr_1fr] lg:gap-20 lg:items-start">
 
-              <div className="mt-5 grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
-                {featureCardsExtended.map((card, index) => (
-                  <motion.div
-                    key={card.title}
-                    initial={{ opacity: 0, y: 24 }}
-                    whileInView={{ opacity: 1, y: 0 }}
-                    viewport={{ once: true, amount: 0.35 }}
-                    transition={{ duration: 0.6, delay: index * 0.03, ease: sectionEase }}
-                    whileHover={{ y: -5 }}
-                    className="rounded-[28px] p-6"
-                    style={{
-                      background: glassSoft,
-                      border: borderSubtle,
-                      backdropFilter: 'blur(18px) saturate(150%)',
-                    }}
+                {/* Left — heading + 3 hero features */}
+                <motion.div
+                  initial={{ opacity: 0, x: -20 }}
+                  whileInView={{ opacity: 1, x: 0 }}
+                  viewport={{ once: true, amount: 0.3 }}
+                  transition={{ duration: 1.0, ease: sectionEase }}
+                >
+                  <div
+                    className="inline-flex items-center gap-2 rounded-full px-3 py-1"
+                    style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', color: 'rgba(255,255,255,0.5)' }}
                   >
-                    <div
-                      className="flex h-11 w-11 items-center justify-center rounded-2xl"
-                      style={{
-                        background: `${card.accent}18`,
-                        border: `1px solid ${card.accent}30`,
-                      }}
-                    >
-                      <card.icon className="h-5 w-5" style={{ color: card.accent }} />
-                    </div>
-                    <h3 className="mt-4 text-xl font-semibold tracking-[-0.03em] text-white">{card.title}</h3>
-                    <p className="mt-3 text-sm leading-7" style={{ color: textMuted }}>
-                      {card.body}
-                    </p>
-                  </motion.div>
-                ))}
+                    <Sparkles className="h-3 w-3" />
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.16em]">Everything included</span>
+                  </div>
+
+                  <h2 className="mt-5 text-3xl font-semibold tracking-[-0.05em] text-white md:text-4xl" style={{ lineHeight: 1.1 }}>
+                    Built for every part of the delivery loop.
+                  </h2>
+                  <p className="mt-4 text-sm leading-7" style={{ color: 'rgba(255,255,255,0.42)' }}>
+                    From the first commit to production health, every signal your team needs is already here.
+                  </p>
+
+                  {/* 3 hero features */}
+                  <div className="mt-10 space-y-5">
+                    {allFeatures.slice(0, 3).map((feat, i) => (
+                      <motion.div
+                        key={feat.title}
+                        initial={{ opacity: 0, y: 12 }}
+                        whileInView={{ opacity: 1, y: 0 }}
+                        viewport={{ once: true }}
+                        transition={{ duration: 0.8, delay: i * 0.08, ease: sectionEase }}
+                        className="flex items-start gap-4"
+                      >
+                        <div
+                          className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl"
+                          style={{ background: `${feat.accent}16`, border: `1px solid ${feat.accent}28` }}
+                        >
+                          <feat.icon className="h-4 w-4" style={{ color: feat.accent }} />
+                        </div>
+                        <div>
+                          <div className="text-sm font-semibold text-white">{feat.title}</div>
+                          <div className="mt-1 text-[13px] leading-5" style={{ color: 'rgba(255,255,255,0.4)' }}>{feat.body}</div>
+                        </div>
+                      </motion.div>
+                    ))}
+                  </div>
+                </motion.div>
+
+                {/* Right — remaining 11 as a clean tag-pill grid */}
+                <motion.div
+                  initial={{ opacity: 0, x: 20 }}
+                  whileInView={{ opacity: 1, x: 0 }}
+                  viewport={{ once: true, amount: 0.3 }}
+                  transition={{ duration: 1.0, ease: sectionEase }}
+                  className="flex flex-col gap-3"
+                >
+                  {/* Top row: 2 wider pills */}
+                  <div className="grid grid-cols-2 gap-3">
+                    {allFeatures.slice(3, 5).map((feat, i) => (
+                      <motion.div
+                        key={feat.title}
+                        initial={{ opacity: 0, y: 10 }}
+                        whileInView={{ opacity: 1, y: 0 }}
+                        viewport={{ once: true }}
+                        transition={{ duration: 0.4, delay: i * 0.05, ease: sectionEase }}
+                        whileHover={{ scale: 1.02, transition: { duration: 0.15 } }}
+                        className="flex items-center gap-3 rounded-2xl px-4 py-3.5 cursor-default"
+                        style={{ background: 'rgba(18,20,28,0.8)', border: '1px solid rgba(255,255,255,0.07)' }}
+                      >
+                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg" style={{ background: `${feat.accent}14` }}>
+                          <feat.icon className="h-3.5 w-3.5" style={{ color: feat.accent }} />
+                        </div>
+                        <span className="text-[13px] font-medium text-white">{feat.title}</span>
+                      </motion.div>
+                    ))}
+                  </div>
+
+                  {/* Middle: 3-col grid */}
+                  <div className="grid grid-cols-3 gap-3">
+                    {allFeatures.slice(5, 11).map((feat, i) => (
+                      <motion.div
+                        key={feat.title}
+                        initial={{ opacity: 0, y: 10 }}
+                        whileInView={{ opacity: 1, y: 0 }}
+                        viewport={{ once: true }}
+                        transition={{ duration: 0.4, delay: i * 0.04, ease: sectionEase }}
+                        whileHover={{ scale: 1.03, transition: { duration: 0.15 } }}
+                        className="flex flex-col items-center gap-2 rounded-2xl px-3 py-4 text-center cursor-default"
+                        style={{ background: 'rgba(18,20,28,0.8)', border: '1px solid rgba(255,255,255,0.07)' }}
+                      >
+                        <div className="flex h-8 w-8 items-center justify-center rounded-xl" style={{ background: `${feat.accent}14` }}>
+                          <feat.icon className="h-4 w-4" style={{ color: feat.accent }} />
+                        </div>
+                        <span className="text-[12px] font-medium leading-4 text-white">{feat.title}</span>
+                      </motion.div>
+                    ))}
+                  </div>
+
+                  {/* Bottom: 3 remaining as wider pills */}
+                  <div className="grid grid-cols-3 gap-3">
+                    {allFeatures.slice(11).map((feat, i) => (
+                      <motion.div
+                        key={feat.title}
+                        initial={{ opacity: 0, y: 10 }}
+                        whileInView={{ opacity: 1, y: 0 }}
+                        viewport={{ once: true }}
+                        transition={{ duration: 0.4, delay: i * 0.05, ease: sectionEase }}
+                        whileHover={{ scale: 1.03, transition: { duration: 0.15 } }}
+                        className="flex flex-col items-center gap-2 rounded-2xl px-3 py-4 text-center cursor-default"
+                        style={{ background: 'rgba(18,20,28,0.8)', border: '1px solid rgba(255,255,255,0.07)' }}
+                      >
+                        <div className="flex h-8 w-8 items-center justify-center rounded-xl" style={{ background: `${feat.accent}14` }}>
+                          <feat.icon className="h-4 w-4" style={{ color: feat.accent }} />
+                        </div>
+                        <span className="text-[12px] font-medium leading-4 text-white">{feat.title}</span>
+                      </motion.div>
+                    ))}
+                  </div>
+
+                  {/* Subtle count badge */}
+                  <div className="mt-1 text-center text-[11px]" style={{ color: 'rgba(255,255,255,0.22)' }}>
+                    14 capabilities, one platform
+                  </div>
+                </motion.div>
+
               </div>
             </div>
           </section>
@@ -1580,7 +1663,7 @@ const LandingPage = () => {
                 initial={{ opacity: 0, y: 24 }}
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true, amount: 0.35 }}
-                transition={{ duration: 0.75, ease: sectionEase }}
+                transition={{ duration: 1.05, ease: sectionEase }}
                 className="grid gap-5 lg:grid-cols-[0.9fr_1.1fr]"
               >
                 <div
@@ -1618,7 +1701,7 @@ const LandingPage = () => {
                       initial={{ opacity: 0, y: 24 }}
                       whileInView={{ opacity: 1, y: 0 }}
                       viewport={{ once: true, amount: 0.35 }}
-                      transition={{ duration: 0.65, delay: index * 0.06, ease: sectionEase }}
+                      transition={{ duration: 0.95, delay: index * 0.06, ease: sectionEase }}
                       whileHover={{ y: -5 }}
                       className="rounded-[30px] p-6 flex flex-col"
                       style={{
@@ -1659,7 +1742,7 @@ const LandingPage = () => {
                     initial={{ opacity: 0, y: 28 }}
                     whileInView={{ opacity: 1, y: 0 }}
                     viewport={{ once: true, amount: 0.35 }}
-                    transition={{ duration: 0.7, delay: index * 0.06, ease: sectionEase }}
+                    transition={{ duration: 1.0, delay: index * 0.06, ease: sectionEase }}
                     whileHover={{ y: -6, scale: tier.featured ? 1.01 : 1 }}
                     className="rounded-[34px] p-7 md:p-8"
                     style={{
@@ -1717,7 +1800,7 @@ const LandingPage = () => {
                 initial={{ opacity: 0, y: 24 }}
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true, amount: 0.35 }}
-                transition={{ duration: 0.75, ease: sectionEase }}
+                transition={{ duration: 1.05, ease: sectionEase }}
                 className="mt-16"
               >
                 <div className="mb-8 max-w-3xl">
