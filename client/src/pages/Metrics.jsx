@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { BarChart2, Clock, RefreshCw, Activity, Zap, Target, Database, Beaker, CheckCircle2, XCircle, TrendingUp, AlertTriangle } from 'lucide-react';
 import { Line, Bar } from 'react-chartjs-2';
 import {
@@ -138,7 +139,9 @@ const TestResultsSection = ({ repo }) => {
 
 const Metrics = () => {
     const { selectedRepo, socket } = useAppContext();
-    const [range, setRange] = useState('7d');
+    const [searchParams, setSearchParams] = useSearchParams();
+    const range = searchParams.get('range') || '7d';
+    const setRange = (r) => { setSearchParams(p => { const n = new URLSearchParams(p); n.set('range', r); return n; }); };
     const [loading, setLoading] = useState(true);
     const [charts, setCharts] = useState({});
 

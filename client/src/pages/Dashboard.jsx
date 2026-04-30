@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import {
     Rocket, AlertTriangle, Clock, Zap, ShieldAlert, TrendingUp,
     RefreshCw, CheckCircle2, XCircle, Globe, Activity,
-    GitBranch, AlertCircle, ArrowRight
+    GitBranch, AlertCircle, ArrowRight, Target
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Bar, Line } from 'react-chartjs-2';
@@ -446,12 +446,103 @@ const Dashboard = () => {
                 <ActivityFeed runs={runs} loading={loading} socketConnected={!!socket?.connected} />
             </div>
 
-            {/* ── Security + Sites ── */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+            {/* ── Security + Sites + SLOs ── */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 20 }}>
                 <SecurityCard secSummary={secSummary} loading={loading} />
                 <SitesCard sites={sites} loading={sitesLoading} />
+                <SloSummaryWidget teamId={null} />
             </div>
 
+        </div>
+    );
+};
+
+// ── SLO Summary Widget ─────────────────────────────────────────────────────
+const SloSummaryWidget = ({ teamId: _teamId }) => {
+    const [sloData, setSloData] = useState(null);
+    const [loading, setLoading] = useState(false);
+    const { selectedRepo } = useAppContext();
+
+    useEffect(() => {
+        if (!selectedRepo) return;
+        setLoading(true);
+        api.getSLOs(selectedRepo).then(data => {
+            setSloData(Array.isArray(data) ? data.slice(0, 3) : []);
+        }).catch(() => setSloData([])).finally(() => setLoading(false));
+    }, [selectedRepo]);
+
+    if (!selectedRepo) return (
+        <div style={{ background: 'rgba(28,28,30,0.4)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 24, padding: 24, height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.2)', fontSize: 12 }}>
+            Select a repo to view SLOs
+        </div>
+    );
+
+    if (loading) return (
+        <div style={{ background: 'rgba(28,28,30,0.4)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 24, padding: 24, height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ width: 20, height: 20, border: '2px solid rgba(255,255,255,0.1)', borderTopColor: 'rgba(255,255,255,0.4)', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+        </div>
+    );
+
+    const hasSLOs = sloData && sloData.length > 0;
+    const hasWarning = sloData?.some(s => (s.budget_used > 0.5) || (s.burn_rate > 0.7));
+
+    return (
+        <div style={{ background: 'rgba(28,28,30,0.4)', backdropFilter: 'blur(20px)', border: `1px solid ${hasWarning ? 'rgba(251,191,36,0.25)' : 'rgba(255,255,255,0.08)'}`, borderRadius: 24, padding: 24, height: '100%', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Target size={15} style={{ color: '#A78BFA' }} />
+                    <span style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>SLO Status</span>
+                </div>
+                {hasWarning && <span style={{ fontSize: 10, background: 'rgba(251,191,36,0.15)', border: '1px solid rgba(251,191,36,0.3)', color: '#FBBF24', padding: '2px 8px', borderRadius: 6, fontWeight: 800, textTransform: 'uppercase' }}>Warning</span>}
+            </div>
+
+            {!hasSLOs ? (
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.25)', fontSize: 12, textAlign: 'center', gap: 8 }}>
+                    <Target size={20} style={{ opacity: 0.3 }} />
+                    <span>No SLOs defined.<br />Create them in Monitoring → SLOs.</span>
+                </div>
+            ) : (
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {sloData.map(slo => {
+                        const target = parseFloat(slo.target || 0.9);
+                        const current = parseFloat(slo.current_value ?? slo.current ?? (slo.budget_used !== undefined ? 1 - slo.budget_used : null));
+                        const budgetUsed = slo.budget_used !== undefined ? slo.budget_used : current != null ? 1 - current : null;
+                        const burnRate = slo.burn_rate ?? slo.burnRate ?? null;
+                        const budgetPct = budgetUsed !== null ? Math.round((1 - budgetUsed) * 100) : null;
+                        const barColor = budgetUsed === null ? '#60A5FA' : budgetUsed < 0.2 ? '#F87171' : budgetUsed < 0.5 ? '#FBBF24' : '#34D399';
+                        const burnColor = burnRate === null ? '#60A5FA' : burnRate > 1 ? '#F87171' : burnRate > 0.7 ? '#FBBF24' : '#34D399';
+                        const sloType = (slo.type || 'availability').toUpperCase();
+
+                        return (
+                            <div key={slo.id} style={{ background: 'rgba(255,255,255,0.04)', borderRadius: 12, padding: '10px 12px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                                    <div>
+                                        <div style={{ fontSize: 12, fontWeight: 700, color: '#fff' }}>{slo.name}</div>
+                                        <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)', marginTop: 2, textTransform: 'uppercase' }}>{sloType} · {Math.round(target * 100)}% target</div>
+                                    </div>
+                                    {burnRate !== null && (
+                                        <div style={{ textAlign: 'right' }}>
+                                            <div style={{ fontSize: 12, fontWeight: 800, color: burnColor }}>{burnRate.toFixed(1)}x</div>
+                                            <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)' }}>burn rate</div>
+                                        </div>
+                                    )}
+                                </div>
+                                {budgetPct !== null && (
+                                    <>
+                                        <div style={{ height: 5, background: 'rgba(255,255,255,0.08)', borderRadius: 3, marginBottom: 4 }}>
+                                            <div style={{ height: '100%', borderRadius: 3, width: `${budgetPct}%`, background: barColor, transition: 'width 0.5s' }} />
+                                        </div>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)' }}>{budgetPct}% budget left</span>
+                                            {burnRate !== null && <span style={{ fontSize: 10, color: burnColor, fontWeight: 700 }}>⚠ {burnRate.toFixed(1)}x</span>}
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
         </div>
     );
 };

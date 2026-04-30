@@ -138,6 +138,9 @@ export const api = {
     getMonitorChecks: (id, hours = 24) => get(`${API_BASE}/monitor/sites/${id}/checks?hours=${hours}`),
     getMonitorStats: (id, hours = 24) => get(`${API_BASE}/monitor/sites/${id}/stats?hours=${hours}`),
     getMonitorIncidents: (id) => get(`${API_BASE}/monitor/sites/${id}/incidents`),
+
+    // SLOs
+    getSLOs: (repository) => get(`${API_BASE}/slo?repository=${encodeURIComponent(repository || '')}`),
     sendMonitorVerification: (url, email) => apiInstance.post(`${API_BASE}/monitor/verify/send`, { url, email }).then(r => r.data),
     confirmMonitorVerification: (url, email, code) => apiInstance.post(`${API_BASE}/monitor/verify/confirm`, { url, email, code }).then(r => r.data),
 

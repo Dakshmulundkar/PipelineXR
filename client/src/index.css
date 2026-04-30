@@ -386,6 +386,74 @@ h5 {
   .security-sites-grid {
     grid-template-columns: 1fr !important;
   }
+  /* Mobile stat cards */
+  .stat-card {
+    padding: 14px 16px !important;
+  }
+  .metric-num {
+    font-size: 1.75rem !important;
+  }
+  .metric-num-lg {
+    font-size: 2.25rem !important;
+  }
+  /* Mobile text */
+  body {
+    font-size: 14px !important;
+  }
+  h1 { font-size: 1.5rem !important; }
+  h2 { font-size: 1.25rem !important; }
+  h3 { font-size: 1.1rem !important; }
+  /* Mobile navigation */
+  .nav-full {
+    flex-direction: column !important;
+    gap: 8px !important;
+  }
+  /* Mobile cards: tighter padding */
+  .card {
+    padding: 12px !important;
+    border-radius: var(--r-sm) !important;
+  }
+  /* Mobile chart containers: allow scroll */
+  .chart-container {
+    overflow-x: auto !important;
+    min-width: 0 !important;
+  }
+  /* Mobile table: horizontal scroll */
+  .table-scroll {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+  /* Mobile badge: smaller */
+  .badge {
+    font-size: 0.65rem !important;
+    padding: 2px 7px !important;
+  }
+  /* Mobile sidebar: collapse to bottom nav */
+  .sidebar-collapsed {
+    display: none !important;
+  }
+  .mobile-bottom-nav {
+    display: flex !important;
+    position: fixed !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    z-index: 50 !important;
+    background: var(--bg-elevated) !important;
+    border-top: 1px solid var(--border) !important;
+    padding: 8px 0 !important;
+    justify-content: space-around !important;
+  }
+}
+
+/* Extra small screens */
+@media (max-width: 380px) {
+  .metric-num {
+    font-size: 1.5rem !important;
+  }
+  .hideable-text {
+    display: none !important;
+  }
 }
 
 /* Pulse animation for live indicators */
