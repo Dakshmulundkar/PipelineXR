@@ -4,13 +4,13 @@
  * Redirects to GitHub OAuth authorization page.
  * GET /.netlify/functions/auth-github
  */
-exports.handler = async () => {
-    const clientId    = process.env.GITHUB_CLIENT_ID;
-    const siteUrl     = process.env.URL || 'https://pipelinexr.netlify.app';
+export default async () => {
+    const clientId    = Netlify.env.get('GITHUB_CLIENT_ID');
+    const siteUrl     = Netlify.env.get('URL') || 'https://pipelinexr.netlify.app';
     const callbackUrl = `${siteUrl}/.netlify/functions/auth-callback`;
 
     if (!clientId) {
-        return { statusCode: 500, body: 'GITHUB_CLIENT_ID not configured' };
+        return new Response('GITHUB_CLIENT_ID not configured', { status: 500 });
     }
 
     const githubUrl = [
@@ -20,9 +20,8 @@ exports.handler = async () => {
         `&redirect_uri=${encodeURIComponent(callbackUrl)}`,
     ].join('');
 
-    return {
-        statusCode: 302,
+    return new Response(null, {
+        status: 302,
         headers: { Location: githubUrl },
-        body: '',
-    };
+    });
 };

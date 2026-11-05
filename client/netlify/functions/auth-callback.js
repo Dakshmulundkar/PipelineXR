@@ -6,13 +6,14 @@
  *
  * GET /.netlify/functions/auth-callback?code=xxx
  */
-exports.handler = async (event) => {
-    const siteUrl      = process.env.URL || 'https://pipelinexr.netlify.app';
-    const clientId     = process.env.GITHUB_CLIENT_ID;
-    const clientSecret = process.env.GITHUB_CLIENT_SECRET;
+export default async (req) => {
+    const siteUrl      = Netlify.env.get('URL') || 'https://pipelinexr.netlify.app';
+    const clientId     = Netlify.env.get('GITHUB_CLIENT_ID');
+    const clientSecret = Netlify.env.get('GITHUB_CLIENT_SECRET');
 
-    const code  = event.queryStringParameters && event.queryStringParameters.code;
-    const error = event.queryStringParameters && event.queryStringParameters.error;
+    const params = new URL(req.url).searchParams;
+    const code  = params.get('code');
+    const error = params.get('error');
 
     if (error || !code) {
         return redirect(`${siteUrl}/auth/callback?error=oauth_denied`);
@@ -61,7 +62,7 @@ exports.handler = async (event) => {
     }
 
     // 3. Sync user with Railway backend — also resolves isAdmin from Railway's GITHUB_TOKEN
-    const railwayUrl = process.env.RAILWAY_BACKEND_URL || '';
+    const railwayUrl = Netlify.env.get('RAILWAY_BACKEND_URL') || '';
     let isAdmin = false;
     if (railwayUrl) {
         try {
@@ -99,5 +100,5 @@ exports.handler = async (event) => {
 };
 
 function redirect(url) {
-    return { statusCode: 302, headers: { Location: url }, body: '' };
+    return new Response(null, { status: 302, headers: { Location: url } });
 }
